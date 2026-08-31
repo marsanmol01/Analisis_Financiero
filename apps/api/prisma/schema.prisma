@@ -1,0 +1,136 @@
+// Esquema minimo de Fase 1 / Paso 1: usuarios, autenticacion, cuentas, categorias,
+// transacciones y auditoria. El resto de entidades (merchants, reglas, transferencias,
+// recurrentes, presupuestos, objetivos, imports...) se anaden en los siguientes pasos.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+  CARD
+  DIGITAL
+  CASH
+  INVESTMENT
+  DEPOSIT
+  LOAN
+}
+
+enum AuditEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILURE
+  LOGIN_LOCKED
+  REGISTER
+  LOGOUT
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String    @map("password_hash")
+  totpSecretEncrypted String? @map("totp_secret_encrypted")
+  totpEnabled       Boolean   @default(false) @map("totp_enabled")
+  failedLoginCount  Int       @default(0) @map("failed_login_count")
+  lockedUntil       DateTime? @map("locked_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  accounts   Account[]
+  categories Category[]
+  auditLogs  AuditLog[]
+
+  @@map("users")
+}
+
+model Account {
+  id          String      @id @default(uuid())
+  userId      String      @map("user_id")
+  name        String
+  entity      String?
+  alias       String?
+  type        AccountType
+  currency    String      @default("EUR")
+  balance     Decimal     @default(0) @db.Decimal(14, 2)
+  balanceDate DateTime?   @map("balance_date")
+  isActive    Boolean     @default(true) @map("is_active")
+  externalId  String?     @map("external_id")
+  ibanMask    String?     @map("iban_mask")
+  notes       String?
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  deletedAt   DateTime?   @map("deleted_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Category {
+  id       String  @id @default(uuid())
+  userId   String? @map("user_id")
+  name     String
+  parentId String? @map("parent_id")
+  isSystem Boolean @default(false) @map("is_system")
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent       Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children     Category[]    @relation("CategoryHierarchy")
+  transactions Transaction[]
+
+  @@index([userId])
+  @@map("categories")
+}
+
+model Transaction {
+  id                    String    @id @default(uuid())
+  accountId             String    @map("account_id")
+  categoryId            String?   @map("category_id")
+  date                  DateTime
+  valueDate             DateTime? @map("value_date")
+  originalDescription   String    @map("original_description")
+  normalizedDescription String?   @map("normalized_description")
+  amount                Decimal   @db.Decimal(14, 2)
+  currency              String    @default("EUR")
+  isIncome              Boolean   @default(false) @map("is_income")
+  isExpense             Boolean   @default(false) @map("is_expense")
+  isInternalTransfer    Boolean   @default(false) @map("is_internal_transfer")
+  classificationSource  String?   @map("classification_source")
+  confidence            Decimal?  @db.Decimal(4, 3)
+  notes                 String?
+  sourceFile            String?   @map("source_file")
+  externalReference     String?   @map("external_reference")
+  fingerprint           String
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  deletedAt             DateTime? @map("deleted_at")
+
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id])
+
+  @@unique([accountId, fingerprint])
+  @@index([accountId])
+  @@index([categoryId])
+  @@map("transactions")
+}
+
+model AuditLog {
+  id        String         @id @default(uuid())
+  userId    String?        @map("user_id")
+  eventType AuditEventType @map("event_type")
+  metadata  Json?
+  ip        String?
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventType])
+  @@map("audit_logs")
+}

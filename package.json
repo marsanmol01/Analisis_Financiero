@@ -1,0 +1,25 @@
+{
+  "name": "plataforma-financiera",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev --workspace apps/api",
+    "dev:web": "npm run dev --workspace apps/web",
+    "build:api": "npm run build --workspace apps/api",
+    "build:web": "npm run build --workspace apps/web",
+    "test:api": "npm run test --workspace apps/api",
+    "lint:api": "npm run lint --workspace apps/api",
+    "lint:web": "npm run lint --workspace apps/web",
+    "prisma:generate": "npm run prisma:generate --workspace apps/api",
+    "prisma:migrate": "npm run prisma:migrate --workspace apps/api"
+  },
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2"
+  }
+}
