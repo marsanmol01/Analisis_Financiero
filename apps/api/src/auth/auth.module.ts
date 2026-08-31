@@ -8,6 +8,6 @@ import { SessionAuthGuard } from "./guards/session-auth.guard";
   imports: [AuditModule],
   controllers: [AuthController],
   providers: [AuthService, SessionAuthGuard],
-  exports: [AuthService],
+  exports: [AuthService, SessionAuthGuard],
 })
 export class AuthModule {}

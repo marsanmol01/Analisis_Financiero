@@ -27,6 +27,9 @@ enum AuditEventType {
   LOGIN_LOCKED
   REGISTER
   LOGOUT
+  ACCOUNT_CREATED
+  ACCOUNT_UPDATED
+  ACCOUNT_DELETED
 }
 
 model User {
@@ -118,6 +121,18 @@ model Transaction {
   @@index([accountId])
   @@index([categoryId])
   @@map("transactions")
+}
+
+// Tabla usada por connect-pg-simple para almacenar sesiones de express-session.
+// Se declara aqui (en vez de dejar que la cree automaticamente) para que quede
+// bajo control de las migraciones de Prisma y no genere drift.
+model Session {
+  sid    String   @id @db.VarChar
+  sess   Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire])
+  @@map("session")
 }
 
 model AuditLog {

@@ -33,7 +33,8 @@ async function bootstrap() {
       store: new PgSession({
         conString: config.get<string>("DATABASE_URL"),
         tableName: "session",
-        createTableIfMissing: true,
+        // La tabla la crea la migracion de Prisma (modelo Session), no connect-pg-simple.
+        createTableIfMissing: false,
       }),
       secret: sessionSecret,
       resave: false,

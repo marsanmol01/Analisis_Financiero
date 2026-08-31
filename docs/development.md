@@ -16,7 +16,10 @@ openssl rand -base64 48
 docker compose up -d postgres
 npm install
 npm run prisma:migrate
+npm run prisma:seed
 ```
+
+El seed crea las categorías del sistema (Vivienda, Supermercado, Ingresos/Nómina, etc.); es idempotente, se puede volver a ejecutar sin duplicar nada.
 
 ## Comandos habituales
 
@@ -28,6 +31,11 @@ npm run prisma:migrate
 | `npm run lint:api` | Lint del backend |
 | `npm run prisma:generate` | Regenera el cliente Prisma tras cambiar `schema.prisma` |
 | `npm run prisma:migrate` | Crea/aplica una migración de desarrollo |
+| `npm run prisma:seed` | Sincroniza las categorías del sistema |
+
+## Tests que requieren Postgres
+
+`accounts.isolation.spec.ts` (y cualquier test de aislamiento entre usuarios que se añada) usa una conexión real a la base de datos definida en `DATABASE_URL`, no mocks. Antes de `npm run test:api` asegúrate de tener `docker compose up -d postgres` corriendo y las migraciones aplicadas.
 
 ## Datos de desarrollo
 
