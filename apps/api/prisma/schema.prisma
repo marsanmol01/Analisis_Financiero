@@ -36,6 +36,13 @@ enum AuditEventType {
   RULE_CREATED
   RULE_UPDATED
   RULE_DELETED
+  TRANSFER_STATUS_CHANGED
+}
+
+enum InternalTransferStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
 }
 
 enum RuleField {
@@ -67,6 +74,7 @@ model User {
   imports             Import[]
   merchants           Merchant[]
   classificationRules ClassificationRule[]
+  internalTransfers   InternalTransfer[]
 
   @@map("users")
 }
@@ -144,11 +152,38 @@ model Transaction {
   category Category? @relation(fields: [categoryId], references: [id])
   merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
 
+  outgoingTransfer InternalTransfer? @relation("OutgoingTransfer")
+  incomingTransfer InternalTransfer? @relation("IncomingTransfer")
+
   @@unique([accountId, fingerprint])
   @@index([accountId])
   @@index([categoryId])
   @@index([merchantId])
   @@map("transactions")
+}
+
+// Propuesta o confirmacion de transferencia interna entre dos cuentas del mismo usuario.
+// "confirmedVia" distingue una autoconfirmacion del motor (confianza alta) de una confirmacion
+// manual del usuario, siguiendo el mismo principio de transparencia que ClassificationRule.
+// isInternalTransfer en Transaction SOLO se activa mientras esta CONFIRMED: pendiente o
+// rechazada, el movimiento sigue contando como ingreso/gasto normal.
+model InternalTransfer {
+  id                     String                  @id @default(uuid())
+  userId                 String                  @map("user_id")
+  outgoingTransactionId  String                  @unique @map("outgoing_transaction_id")
+  incomingTransactionId  String                  @unique @map("incoming_transaction_id")
+  status                 InternalTransferStatus  @default(PENDING)
+  confidence             Decimal                 @db.Decimal(4, 3)
+  confirmedVia           String?                 @map("confirmed_via")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+
+  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outgoingTransaction Transaction @relation("OutgoingTransfer", fields: [outgoingTransactionId], references: [id], onDelete: Cascade)
+  incomingTransaction Transaction @relation("IncomingTransfer", fields: [incomingTransactionId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("internal_transfers")
 }
 
 // Catalogo personal de comercios del usuario. Los alias son patrones (contains, sobre la

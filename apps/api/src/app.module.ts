@@ -12,6 +12,7 @@ import { ImportsModule } from "./imports/imports.module";
 import { MerchantsModule } from "./merchants/merchants.module";
 import { ClassificationRulesModule } from "./classification-rules/classification-rules.module";
 import { ClassificationModule } from "./classification/classification.module";
+import { TransfersModule } from "./transfers/transfers.module";
 import { HealthController } from "./health/health.controller";
 
 @Module({
@@ -33,6 +34,7 @@ import { HealthController } from "./health/health.controller";
     MerchantsModule,
     ClassificationRulesModule,
     ClassificationModule,
+    TransfersModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
