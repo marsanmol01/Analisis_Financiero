@@ -7,6 +7,8 @@ import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { AccountsModule } from "./accounts/accounts.module";
 import { CategoriesModule } from "./categories/categories.module";
+import { TransactionsModule } from "./transactions/transactions.module";
+import { ImportsModule } from "./imports/imports.module";
 import { HealthController } from "./health/health.controller";
 
 @Module({
@@ -23,6 +25,8 @@ import { HealthController } from "./health/health.controller";
     AuthModule,
     AccountsModule,
     CategoriesModule,
+    TransactionsModule,
+    ImportsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

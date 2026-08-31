@@ -30,6 +30,9 @@ enum AuditEventType {
   ACCOUNT_CREATED
   ACCOUNT_UPDATED
   ACCOUNT_DELETED
+  IMPORT_CREATED
+  TRANSACTION_UPDATED
+  TRANSACTION_DELETED
 }
 
 model User {
@@ -46,6 +49,7 @@ model User {
   accounts   Account[]
   categories Category[]
   auditLogs  AuditLog[]
+  imports    Import[]
 
   @@map("users")
 }
@@ -70,6 +74,7 @@ model Account {
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
+  imports      Import[]
 
   @@index([userId])
   @@map("accounts")
@@ -121,6 +126,27 @@ model Transaction {
   @@index([accountId])
   @@index([categoryId])
   @@map("transactions")
+}
+
+// Registro de una importacion confirmada (auditoria de "importaciones"). El preview no persiste
+// nada: solo se crea este registro, junto con las transacciones, al confirmar.
+model Import {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  accountId      String   @map("account_id")
+  filename       String
+  totalRows      Int      @map("total_rows")
+  importedCount  Int      @map("imported_count")
+  duplicateCount Int      @map("duplicate_count")
+  errorCount     Int      @map("error_count")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([accountId])
+  @@map("imports")
 }
 
 // Tabla usada por connect-pg-simple para almacenar sesiones de express-session.
