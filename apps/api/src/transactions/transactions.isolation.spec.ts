@@ -11,6 +11,8 @@ import { NotFoundException } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccountsService } from "../accounts/accounts.service";
+import { AuditService } from "../audit/audit.service";
+import { ClassificationRulesService } from "../classification-rules/classification-rules.service";
 import { TransactionsService } from "./transactions.service";
 
 describe("TransactionsService (aislamiento y soft delete)", () => {
@@ -26,7 +28,9 @@ describe("TransactionsService (aislamiento y soft delete)", () => {
     prisma = new PrismaService(config);
     await prisma.onModuleInit();
     accountsService = new AccountsService(prisma);
-    service = new TransactionsService(prisma);
+    const auditService = new AuditService(prisma);
+    const rulesService = new ClassificationRulesService(prisma, auditService);
+    service = new TransactionsService(prisma, rulesService);
 
     const passwordHash = await argon2.hash("not-used-in-this-test", { type: argon2.argon2id });
     const suffix = Date.now();

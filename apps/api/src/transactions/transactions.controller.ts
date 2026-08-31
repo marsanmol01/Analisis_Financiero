@@ -34,14 +34,18 @@ export class TransactionsController {
     @Body() dto: UpdateTransactionDto,
     @Req() req: RequestWithUser,
   ) {
-    const transaction = await this.transactionsService.update(user.id, id, dto);
+    const result = await this.transactionsService.update(user.id, id, dto, req.ip);
     await this.auditService.record({
       userId: user.id,
       eventType: "TRANSACTION_UPDATED",
       ip: req.ip,
-      metadata: { transactionId: transaction.id },
+      metadata: {
+        transactionId: result.transaction.id,
+        similarUpdatedCount: result.similarUpdatedCount,
+        ruleCreatedId: result.ruleCreated?.id,
+      },
     });
-    return transaction;
+    return result;
   }
 
   @Delete(":id")

@@ -9,6 +9,9 @@ import { AccountsModule } from "./accounts/accounts.module";
 import { CategoriesModule } from "./categories/categories.module";
 import { TransactionsModule } from "./transactions/transactions.module";
 import { ImportsModule } from "./imports/imports.module";
+import { MerchantsModule } from "./merchants/merchants.module";
+import { ClassificationRulesModule } from "./classification-rules/classification-rules.module";
+import { ClassificationModule } from "./classification/classification.module";
 import { HealthController } from "./health/health.controller";
 
 @Module({
@@ -27,6 +30,9 @@ import { HealthController } from "./health/health.controller";
     CategoriesModule,
     TransactionsModule,
     ImportsModule,
+    MerchantsModule,
+    ClassificationRulesModule,
+    ClassificationModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

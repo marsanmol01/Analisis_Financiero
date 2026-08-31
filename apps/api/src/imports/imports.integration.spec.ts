@@ -13,6 +13,9 @@ import { NotFoundException } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccountsService } from "../accounts/accounts.service";
+import { AuditService } from "../audit/audit.service";
+import { ClassificationRulesService } from "../classification-rules/classification-rules.service";
+import { ClassificationService } from "../classification/classification.service";
 import { ImportsService, UploadedFileLike } from "./imports.service";
 
 const FIXTURE_PATH = path.resolve(__dirname, "../../../../fixtures/generic-bank-sample.csv");
@@ -24,17 +27,22 @@ function toFile(buffer: Buffer, name: string): UploadedFileLike {
 describe("ImportsService (integracion)", () => {
   let prisma: PrismaService;
   let accountsService: AccountsService;
+  let rulesService: ClassificationRulesService;
   let importsService: ImportsService;
   let userA: { id: string };
   let userB: { id: string };
   let accountA: { id: string };
+  let categoryId: string;
 
   beforeAll(async () => {
     const config = { getOrThrow: (key: string) => process.env[key] } as unknown as ConfigService;
     prisma = new PrismaService(config);
     await prisma.onModuleInit();
     accountsService = new AccountsService(prisma);
-    importsService = new ImportsService(prisma, accountsService);
+    const auditService = new AuditService(prisma);
+    rulesService = new ClassificationRulesService(prisma, auditService);
+    const classificationService = new ClassificationService(prisma);
+    importsService = new ImportsService(prisma, accountsService, classificationService);
 
     const passwordHash = await argon2.hash("not-used-in-this-test", { type: argon2.argon2id });
     const suffix = Date.now();
@@ -45,9 +53,14 @@ describe("ImportsService (integracion)", () => {
       type: "CHECKING",
       currency: "EUR",
     });
+
+    const category = await prisma.category.findFirst({ where: { isSystem: true } });
+    if (!category) throw new Error("Se esperaban categorías del sistema ya sembradas (npm run prisma:seed)");
+    categoryId = category.id;
   });
 
   afterAll(async () => {
+    await prisma.classificationRule.deleteMany({ where: { userId: { in: [userA.id, userB.id] } } });
     await prisma.import.deleteMany({ where: { userId: { in: [userA.id, userB.id] } } });
     await prisma.transaction.deleteMany({ where: { accountId: accountA.id } });
     await prisma.account.deleteMany({ where: { userId: { in: [userA.id, userB.id] } } });
@@ -148,5 +161,34 @@ describe("ImportsService (integracion)", () => {
     expect(preview.rows.every((r) => r.status === "error")).toBe(true);
     expect(preview.rows[0].reason).toMatch(/fecha/i);
     expect(preview.rows[1].reason).toMatch(/importe/i);
+  });
+
+  it("clasifica automaticamente al confirmar si una regla del usuario coincide", async () => {
+    // Descripciones exclusivas de este test: el fixture compartido ya incluye una fila
+    // "GIMNASIO FICTICIO CLUB" en tests anteriores, y reutilizar ese texto haria que
+    // findFirst() pudiera devolver esa otra transaccion en vez de la de este test.
+    await rulesService.create(userA.id, { operator: "CONTAINS", value: "SUSCRIPCION GIMNASIO TEST REGLA", categoryId });
+
+    const csv =
+      "Fecha,Concepto,Importe\n01/08/2026,SUSCRIPCION GIMNASIO TEST REGLA,-40.00\n01/08/2026,TRANSACCION SIN REGLA APLICABLE TEST,-5.00\n";
+    const preview = await importsService.preview(userA.id, accountA.id, toFile(Buffer.from(csv), "clasificacion.csv"));
+    if (preview.status !== "ok") throw new Error("unreachable");
+
+    await importsService.confirm(userA.id, {
+      accountId: accountA.id,
+      filename: "clasificacion.csv",
+      rows: preview.rows.filter((r) => r.status === "new") as never,
+    });
+
+    const clasificada = await prisma.transaction.findFirst({
+      where: { originalDescription: "SUSCRIPCION GIMNASIO TEST REGLA", accountId: accountA.id },
+    });
+    const sinClasificar = await prisma.transaction.findFirst({
+      where: { originalDescription: "TRANSACCION SIN REGLA APLICABLE TEST", accountId: accountA.id },
+    });
+
+    expect(clasificada?.categoryId).toBe(categoryId);
+    expect(clasificada?.classificationSource).toBe("rule");
+    expect(sinClasificar?.categoryId).toBeNull();
   });
 });

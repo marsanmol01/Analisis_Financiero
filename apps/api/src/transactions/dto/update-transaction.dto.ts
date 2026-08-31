@@ -1,7 +1,5 @@
-import { IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
+import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 
-// Correccion manual minima. La clasificacion automatica/reglas llegan en Fase 2; aqui solo se
-// permite lo que ya tiene sentido con el modelo actual: categorizar a mano y anotar.
 export class UpdateTransactionDto {
   @IsOptional()
   @IsUUID()
@@ -11,4 +9,16 @@ export class UpdateTransactionDto {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  // Solo tienen efecto si categoryId viene informado (no null): "correcciones que enseñan al
+  // sistema" (requisito 4.7). No crean nada oculto: applyToSimilar solo toca transacciones que
+  // no hayan sido ya categorizadas a mano, y createRule crea una regla normal, visible y
+  // editable en ClassificationRulesModule.
+  @IsOptional()
+  @IsBoolean()
+  applyToSimilar?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  createRule?: boolean;
 }

@@ -33,6 +33,21 @@ enum AuditEventType {
   IMPORT_CREATED
   TRANSACTION_UPDATED
   TRANSACTION_DELETED
+  RULE_CREATED
+  RULE_UPDATED
+  RULE_DELETED
+}
+
+enum RuleField {
+  DESCRIPTION
+}
+
+enum RuleOperator {
+  CONTAINS
+  STARTS_WITH
+  ENDS_WITH
+  EXACT
+  REGEX
 }
 
 model User {
@@ -46,10 +61,12 @@ model User {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  accounts   Account[]
-  categories Category[]
-  auditLogs  AuditLog[]
-  imports    Import[]
+  accounts            Account[]
+  categories          Category[]
+  auditLogs           AuditLog[]
+  imports             Import[]
+  merchants           Merchant[]
+  classificationRules ClassificationRule[]
 
   @@map("users")
 }
@@ -72,9 +89,10 @@ model Account {
   updatedAt   DateTime    @updatedAt @map("updated_at")
   deletedAt   DateTime?   @map("deleted_at")
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
-  imports      Import[]
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions        Transaction[]
+  imports             Import[]
+  classificationRules ClassificationRule[]
 
   @@index([userId])
   @@map("accounts")
@@ -87,10 +105,12 @@ model Category {
   parentId String? @map("parent_id")
   isSystem Boolean @default(false) @map("is_system")
 
-  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parent       Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children     Category[]    @relation("CategoryHierarchy")
-  transactions Transaction[]
+  user                User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent              Category?            @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children            Category[]           @relation("CategoryHierarchy")
+  transactions        Transaction[]
+  merchantDefaults    Merchant[]
+  classificationRules ClassificationRule[]
 
   @@index([userId])
   @@map("categories")
@@ -100,6 +120,7 @@ model Transaction {
   id                    String    @id @default(uuid())
   accountId             String    @map("account_id")
   categoryId            String?   @map("category_id")
+  merchantId            String?   @map("merchant_id")
   date                  DateTime
   valueDate             DateTime? @map("value_date")
   originalDescription   String    @map("original_description")
@@ -121,11 +142,74 @@ model Transaction {
 
   account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   category Category? @relation(fields: [categoryId], references: [id])
+  merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
 
   @@unique([accountId, fingerprint])
   @@index([accountId])
   @@index([categoryId])
+  @@index([merchantId])
   @@map("transactions")
+}
+
+// Catalogo personal de comercios del usuario. Los alias son patrones (contains, sobre la
+// descripcion normalizada) que identifican al comercio en distintos formatos bancarios:
+// "MERCADONA 4287", "MERCADONA ES", "COMPRA MERCADONA" -> mismo Merchant "Mercadona".
+model Merchant {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  name              String
+  defaultCategoryId String?  @map("default_category_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultCategory Category?       @relation(fields: [defaultCategoryId], references: [id])
+  aliases         MerchantAlias[]
+  transactions    Transaction[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("merchants")
+}
+
+model MerchantAlias {
+  id         String   @id @default(uuid())
+  merchantId String   @map("merchant_id")
+  pattern    String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, pattern])
+  @@index([merchantId])
+  @@map("merchant_aliases")
+}
+
+// Reglas deterministas de clasificacion, con prioridad sobre cualquier automatizacion futura
+// basada en IA (Fase 4). "createdVia" distingue una regla escrita a mano de una generada al
+// aceptar la sugerencia de "crear regla" desde una correccion manual (igualmente editable).
+model ClassificationRule {
+  id         String       @id @default(uuid())
+  userId     String       @map("user_id")
+  field      RuleField    @default(DESCRIPTION)
+  operator   RuleOperator
+  value      String
+  accountId  String?      @map("account_id")
+  minAmount  Decimal?     @map("min_amount") @db.Decimal(14, 2)
+  maxAmount  Decimal?     @map("max_amount") @db.Decimal(14, 2)
+  categoryId String       @map("category_id")
+  priority   Int          @default(100)
+  isActive   Boolean      @default(true) @map("is_active")
+  createdVia String       @default("manual") @map("created_via")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account  Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@index([userId])
+  @@map("classification_rules")
 }
 
 // Registro de una importacion confirmada (auditoria de "importaciones"). El preview no persiste

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { Import, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccountsService } from "../accounts/accounts.service";
+import { ClassificationService } from "../classification/classification.service";
 import { GenericCsvImporter } from "./importers/generic-csv.importer";
 import { GenericXlsxImporter } from "./importers/generic-xlsx.importer";
 import { BankImporter } from "./importers/bank-importer.interface";
@@ -25,6 +26,7 @@ export class ImportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accountsService: AccountsService,
+    private readonly classificationService: ClassificationService,
   ) {}
 
   private resolveImporter(file: UploadedFileLike): BankImporter {
@@ -133,6 +135,7 @@ export class ImportsService {
 
   async confirm(userId: string, dto: ConfirmImportDto): Promise<Import> {
     const account = await this.accountsService.findOne(userId, dto.accountId);
+    const ruleSet = await this.classificationService.loadRuleSet(userId);
 
     // La huella nunca se toma del cliente: se recalcula aqui a partir de los datos de la fila.
     const recomputed = dto.rows.map((row) => {
@@ -167,6 +170,13 @@ export class ImportsService {
         continue;
       }
       seenInBatch.add(fingerprint);
+
+      const classification = this.classificationService.classify(ruleSet, {
+        accountId: dto.accountId,
+        amount: row.amount,
+        normalizedDescription,
+      });
+
       toCreate.push({
         accountId: dto.accountId,
         date: new Date(row.date),
@@ -180,6 +190,10 @@ export class ImportsService {
         sourceFile: dto.filename,
         externalReference: row.externalReference,
         fingerprint,
+        categoryId: classification.categoryId,
+        merchantId: classification.merchantId,
+        classificationSource: classification.source,
+        confidence: classification.confidence,
       });
     }
 
