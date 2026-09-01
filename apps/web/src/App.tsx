@@ -1,10 +1,44 @@
+import { createBrowserRouter, RouterProvider } from "react-router";
+import { ProtectedRoute, PublicOnlyRoute } from "./components/auth/protected-route";
+import { AppLayout } from "./components/layout/app-layout";
+import { LoginPage } from "./pages/auth/login-page";
+import { RegisterPage } from "./pages/auth/register-page";
+import { DashboardPage } from "./pages/dashboard/dashboard-page";
+import { ComingSoonPage } from "./pages/coming-soon-page";
+
+const router = createBrowserRouter([
+  {
+    element: <PublicOnlyRoute />,
+    children: [
+      { path: "/login", element: <LoginPage /> },
+      { path: "/register", element: <RegisterPage /> },
+    ],
+  },
+  {
+    element: <ProtectedRoute />,
+    children: [
+      {
+        element: <AppLayout />,
+        children: [
+          { path: "/", element: <DashboardPage /> },
+          { path: "/transactions", element: <ComingSoonPage title="Transacciones" /> },
+          { path: "/accounts", element: <ComingSoonPage title="Cuentas" /> },
+          { path: "/categories", element: <ComingSoonPage title="Categorías" /> },
+          { path: "/budgets", element: <ComingSoonPage title="Presupuestos" /> },
+          { path: "/savings-goals", element: <ComingSoonPage title="Objetivos de ahorro" /> },
+          { path: "/recurring", element: <ComingSoonPage title="Gastos recurrentes" /> },
+          { path: "/transfers", element: <ComingSoonPage title="Transferencias internas" /> },
+          { path: "/merchants", element: <ComingSoonPage title="Comercios" /> },
+          { path: "/classification-rules", element: <ComingSoonPage title="Reglas de clasificación" /> },
+          { path: "/imports", element: <ComingSoonPage title="Importaciones" /> },
+          { path: "/analytics", element: <ComingSoonPage title="Estadísticas" /> },
+          { path: "/settings", element: <ComingSoonPage title="Configuración" /> },
+        ],
+      },
+    ],
+  },
+]);
+
 export default function App() {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50">
-      <div className="text-center">
-        <h1 className="text-2xl font-semibold text-slate-800">Plataforma Financiera</h1>
-        <p className="mt-2 text-slate-500">En construcción — Fase 1 en marcha.</p>
-      </div>
-    </main>
-  );
+  return <RouterProvider router={router} />;
 }
