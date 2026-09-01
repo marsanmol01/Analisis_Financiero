@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { AccountType } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   bucketByMonth,
@@ -59,6 +60,16 @@ export interface NetWorthResult {
   totalLiabilities: number;
   accounts: { id: string; name: string; type: string; balance: number; isLiability: boolean }[];
 }
+
+export interface NetWorthEvolutionPoint {
+  month: string;
+  netWorth: number;
+}
+
+// Tipos de cuenta que se consideran dinero de uso inmediato para "dinero realmente disponible".
+// Decision explicita: INVESTMENT y DEPOSIT quedan fuera (no son liquidos al instante, suelen
+// tener plazo o penalizacion por retirada anticipada) y LOAN tambien (es deuda, no disponible).
+const LIQUID_ACCOUNT_TYPES: AccountType[] = ["CHECKING", "SAVINGS", "CASH", "DIGITAL", "CARD"];
 
 @Injectable()
 export class AnalyticsService {
@@ -230,6 +241,41 @@ export class AnalyticsService {
       totalLiabilities,
       accounts: mapped,
     };
+  }
+
+  async getLiquidBalance(userId: string): Promise<number> {
+    const accounts = await this.prisma.account.findMany({
+      where: { userId, deletedAt: null, isActive: true, type: { in: LIQUID_ACCOUNT_TYPES } },
+      select: { balance: true },
+    });
+    return round2(accounts.reduce((sum, a) => sum + Number(a.balance), 0));
+  }
+
+  // Evolucion mensual del patrimonio a partir de BalanceSnapshot: para cada mes solicitado, se
+  // toma la ultima foto de cada cuenta anterior al fin de ese mes y se suman. Si una cuenta
+  // todavia no tenia ninguna foto en ese momento (se creo despues), no aporta nada ese mes — no
+  // se inventa un valor hacia atras.
+  async getNetWorthEvolution(userId: string, months: number): Promise<NetWorthEvolutionPoint[]> {
+    const referenceMonth = monthKeyOf(new Date());
+    const monthKeys = lastMonthKeys(months, referenceMonth);
+    const rangeEnd = monthKeyRange(referenceMonth).to;
+
+    const snapshots = await this.prisma.balanceSnapshot.findMany({
+      where: { userId, date: { lt: rangeEnd } },
+      select: { accountId: true, balance: true, date: true },
+      orderBy: { date: "asc" },
+    });
+
+    return monthKeys.map((month) => {
+      const { to } = monthKeyRange(month);
+      const latestByAccount = new Map<string, number>();
+      for (const snap of snapshots) {
+        if (snap.date >= to) break; // snapshots vienen ordenadas asc: a partir de aqui son futuras a este mes
+        latestByAccount.set(snap.accountId, Number(snap.balance));
+      }
+      const netWorth = round2([...latestByAccount.values()].reduce((sum, b) => sum + b, 0));
+      return { month, netWorth };
+    });
   }
 
   private resolveRange(query: { from?: string; to?: string }): { from: Date; to: Date } {

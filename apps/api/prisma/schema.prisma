@@ -93,6 +93,7 @@ model User {
   recurringGroups     RecurringGroup[]
   budgets             Budget[]
   savingsGoals        SavingsGoal[]
+  balanceSnapshots    BalanceSnapshot[]
 
   @@map("users")
 }
@@ -121,6 +122,7 @@ model Account {
   classificationRules ClassificationRule[]
   recurringGroups     RecurringGroup[]
   savingsGoals        SavingsGoal[]
+  balanceSnapshots    BalanceSnapshot[]
 
   @@index([userId])
   @@map("accounts")
@@ -350,6 +352,25 @@ model SavingsGoal {
 
   @@index([userId])
   @@map("savings_goals")
+}
+
+// Foto del saldo de una cuenta en un momento dado. Se captura automaticamente al crear una
+// cuenta y cada vez que su saldo cambia (AccountsService), nunca se escribe desde otro sitio.
+// Es la unica fuente honesta para "evolucion del patrimonio": sin snapshots acumulados no hay
+// historico que mostrar, y no se inventa uno hacia atras.
+model BalanceSnapshot {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  accountId String   @map("account_id")
+  balance   Decimal  @db.Decimal(14, 2)
+  date      DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([accountId, date])
+  @@map("balance_snapshots")
 }
 
 // Registro de una importacion confirmada (auditoria de "importaciones"). El preview no persiste

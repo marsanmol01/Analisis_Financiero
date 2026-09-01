@@ -1,4 +1,4 @@
-# Seguridad — estado tras Fase 3 / Bloque "Objetivos de ahorro"
+# Seguridad — estado tras cierre de Fase 3 (Bloque "Dashboard")
 
 ## Autenticación
 
@@ -45,6 +45,8 @@ Las categorías del sistema (`isSystem=true`) son visibles para todos los usuari
 
 `SavingsGoalsService` sigue el mismo patrón; además, en modo automático (objetivo vinculado a una cuenta), la comprobación de que esa cuenta pertenece al usuario ocurre al crear/editar el vínculo, no solo al leer el progreso. Verificado en [`savings-goals.isolation.spec.ts`](../apps/api/src/savings-goals/savings-goals.isolation.spec.ts).
 
+`DashboardService` no añade ninguna consulta propia a la base de datos: compone exclusivamente las de los servicios anteriores, así que hereda su aislamiento. Verificado igualmente en [`dashboard.isolation.spec.ts`](../apps/api/src/dashboard/dashboard.isolation.spec.ts).
+
 ## Cuentas: no se guardan identificadores bancarios completos
 
 El campo `ibanMask` de `Account` está validado en la capa de API (`IsMaskedAccountIdentifier`): rechaza con `400` cualquier valor que tenga forma de IBAN completo sin enmascarar. Solo se acepta un identificador parcial/enmascarado (ej. `ES91 **** **** **** 1234`).
@@ -77,6 +79,10 @@ Ver [`docs/budgets.md`](budgets.md). Sin superficie de seguridad nueva más all�
 
 Ver [`docs/savings-goals.md`](savings-goals.md). Sin superficie de seguridad nueva más allá del aislamiento por `userId`. Punto de diseño relevante para integridad de datos: en modo automático (vinculado a una cuenta), el campo `currentAmount` no se puede editar a mano — se rechaza explícitamente con `400` — para que nunca quede desincronizado del saldo real de la cuenta, que es la única fuente de verdad en ese modo.
 
+## Dashboard
+
+Ver [`docs/dashboard.md`](dashboard.md). Sin superficie de seguridad nueva: solo lectura, sin CSRF, sin auditoría, compone datos ya expuestos individualmente por otros módulos. Introduce `BalanceSnapshot`, capturado automáticamente por `AccountsService` (nunca escrito desde otro sitio) al crear una cuenta o cambiar su saldo — es lo que permite reconstruir honestamente la evolución del patrimonio sin inventar histórico hacia atrás.
+
 ## Auditoría
 
 `audit_logs` registra: `REGISTER`, `LOGIN_SUCCESS`, `LOGIN_FAILURE`, `LOGIN_LOCKED`, `LOGOUT`, `ACCOUNT_CREATED`, `ACCOUNT_UPDATED`, `ACCOUNT_DELETED`, `IMPORT_CREATED`, `TRANSACTION_UPDATED`, `TRANSACTION_DELETED`, `RULE_CREATED`, `RULE_UPDATED`, `RULE_DELETED`, `TRANSFER_STATUS_CHANGED`, con `user_id` (cuando aplica), IP y metadata mínima (nunca contraseñas ni tokens, ni el contenido de la cuenta/transacción/regla — solo ids y contadores). `AuditService.record()` es el único punto de escritura. `RULE_CREATED` se audita **dentro del servicio** (`ClassificationRulesService`), no en el controller, precisamente porque se puede crear una regla desde dos caminos distintos (`POST /classification-rules` y la corrección de una transacción con `createRule: true`) y ambos deben quedar cubiertos igual. Las mutaciones de categorías y de comercios/alias siguen sin auditarse (no estaban en la lista de eventos original).
@@ -107,3 +113,6 @@ Ver [`docs/savings-goals.md`](savings-goals.md). Sin superficie de seguridad nue
 - Objetivos de ahorro sin auditoría dedicada (ver [`docs/savings-goals.md`](savings-goals.md)).
 - Objetivos de ahorro sin historial de aportaciones individuales; el modo manual solo guarda el importe acumulado actual.
 - Los cálculos de meses en objetivos de ahorro usan una duración media (365,25/12 días), no aritmética de calendario exacta — margen de hasta ~3 días por mes, aceptable para una cifra orientativa.
+- Dashboard sin auditoría (solo lectura). Las alertas se recalculan en cada petición, no se persisten ni se pueden marcar como leídas/descartadas.
+- "Saldo líquido disponible" incluye por decisión explícita `CHECKING`/`SAVINGS`/`CASH`/`DIGITAL`/`CARD` y excluye `INVESTMENT`/`DEPOSIT`/`LOAN` — ver [`docs/dashboard.md`](dashboard.md) para la justificación completa.
+- `getNetWorthEvolution` solo tiene datos desde que existe al menos una `BalanceSnapshot`; para un usuario o cuenta nuevos, los meses anteriores a su creación aparecen a 0€ en vez de con un valor estimado hacia atrás.

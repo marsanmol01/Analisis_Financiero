@@ -8,8 +8,8 @@ import { UpdateAccountDto } from "./dto/update-account.dto";
 export class AccountsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(userId: string, dto: CreateAccountDto): Promise<Account> {
-    return this.prisma.account.create({
+  async create(userId: string, dto: CreateAccountDto): Promise<Account> {
+    const account = await this.prisma.account.create({
       data: {
         userId,
         name: dto.name,
@@ -25,6 +25,12 @@ export class AccountsService {
         notes: dto.notes,
       },
     });
+
+    // Primera foto del saldo: sin esta, "evolucion del patrimonio" no tendria ningun punto de
+    // partida para esta cuenta hasta el primer cambio de saldo posterior.
+    await this.snapshotBalance(userId, account.id, account.balance);
+
+    return account;
   }
 
   findAll(userId: string): Promise<Account[]> {
@@ -48,7 +54,7 @@ export class AccountsService {
   async update(userId: string, id: string, dto: UpdateAccountDto): Promise<Account> {
     await this.findOne(userId, id);
 
-    return this.prisma.account.update({
+    const account = await this.prisma.account.update({
       where: { id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
@@ -64,6 +70,18 @@ export class AccountsService {
         ...(dto.notes !== undefined && { notes: dto.notes }),
       },
     });
+
+    // Solo se registra una foto nueva si el saldo realmente cambio, para no llenar el historico
+    // de puntos identicos cuando se edita el nombre, la entidad, etc.
+    if (dto.balance !== undefined) {
+      await this.snapshotBalance(userId, account.id, account.balance);
+    }
+
+    return account;
+  }
+
+  private snapshotBalance(userId: string, accountId: string, balance: Account["balance"]): Promise<unknown> {
+    return this.prisma.balanceSnapshot.create({ data: { userId, accountId, balance } });
   }
 
   async remove(userId: string, id: string): Promise<void> {
