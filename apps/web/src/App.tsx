@@ -4,6 +4,8 @@ import { AppLayout } from "./components/layout/app-layout";
 import { LoginPage } from "./pages/auth/login-page";
 import { RegisterPage } from "./pages/auth/register-page";
 import { DashboardPage } from "./pages/dashboard/dashboard-page";
+import { AccountsPage } from "./pages/accounts/accounts-page";
+import { CategoriesPage } from "./pages/categories/categories-page";
 import { ComingSoonPage } from "./pages/coming-soon-page";
 
 const router = createBrowserRouter([
@@ -22,8 +24,8 @@ const router = createBrowserRouter([
         children: [
           { path: "/", element: <DashboardPage /> },
           { path: "/transactions", element: <ComingSoonPage title="Transacciones" /> },
-          { path: "/accounts", element: <ComingSoonPage title="Cuentas" /> },
-          { path: "/categories", element: <ComingSoonPage title="Categorías" /> },
+          { path: "/accounts", element: <AccountsPage /> },
+          { path: "/categories", element: <CategoriesPage /> },
           { path: "/budgets", element: <ComingSoonPage title="Presupuestos" /> },
           { path: "/savings-goals", element: <ComingSoonPage title="Objetivos de ahorro" /> },
           { path: "/recurring", element: <ComingSoonPage title="Gastos recurrentes" /> },
