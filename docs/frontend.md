@@ -102,3 +102,49 @@ Probado en el navegador real de extremo a extremo: alta, edición y borrado de u
 - Sin filtro/búsqueda en el listado de cuentas o categorías (aún hay pocas; se añadirá si hace falta).
 - Sin reordenar categorías por drag-and-drop.
 - Sin vista de "cuentas inactivas" separada (se muestran mezcladas, con una insignia).
+
+## Bloque 3: Transacciones + Importaciones
+
+### Alcance
+
+El bloque más grande hasta ahora: listado/edición/borrado de movimientos (`/transactions`) y el flujo completo de importación de extractos (`/imports`, `/imports/new`). Es el primer bloque donde el backend no expone alta manual (`TransactionsController` no tiene `POST`): los movimientos solo entran por importación, así que no hay "nuevo movimiento" en la UI, solo edición de lo ya importado.
+
+### Cliente API: soporte de `FormData`
+
+`api-client.ts` serializaba siempre el cuerpo como JSON. La subida de ficheros (`POST /imports/preview`, `multipart/form-data`) necesitaba lo contrario: enviar un `FormData` tal cual, sin fijar `Content-Type` a mano (el navegador debe poner el suyo con el boundary del multipart, o el backend no puede parsear las partes). Se añadió una rama en `apiRequest`: si el cuerpo es una instancia de `FormData`, se envía sin `JSON.stringify` y sin la cabecera `Content-Type`; en cualquier otro caso el comportamiento es el de siempre. Un único método (`api.post`) sigue sirviendo para JSON y para subidas.
+
+### Transacciones
+
+- Filtros: cuenta (o "todas"), rango de fechas. Cambiar cualquiera reinicia la paginación a la página 1.
+- Paginación real contra `GET /transactions` (respuesta `{ items, total, page, pageSize }`); se usa `placeholderData: keepPreviousData` de TanStack Query para no mostrar un parpadeo de "cargando" al cambiar de página, solo un atenuado del contenido anterior mientras llega el siguiente.
+- La tabla resuelve nombres de cuenta/categoría/comercio en el cliente a partir de los listados ya cargados (`useAccounts`, `useCategories`, y un `useMerchants` nuevo, de solo lectura — la gestión completa de comercios es el bloque 4). El backend no hace `include` en `findAll`, solo devuelve los IDs.
+- Editar un movimiento reutiliza el mismo `UpdateTransactionDto` que backend expone para "correcciones que enseñan al sistema" (requisito 4.7 de la especificación): al cambiar la categoría aparecen dos casillas — aplicar la misma categoría a movimientos similares sin categorizar a mano, y crear una regla de clasificación automática a partir de la descripción — solo cuando la categoría realmente cambia respecto a la que ya tenía. El resultado de la mutación (`similarUpdatedCount`, `ruleCreated`) se muestra como un aviso descartable en la página, no dentro del diálogo, porque el diálogo ya se ha cerrado en ese momento.
+- Borrado lógico igual que cuentas/categorías, con `ConfirmDialog`.
+
+### Importaciones
+
+Asistente de tres pasos en `/imports/new`, como página propia (no un diálogo modal: la tabla de previsualización puede tener miles de filas y necesita su propio espacio):
+
+1. **Subida**: cuenta + fichero (CSV/XLSX, máx. 15 MB, límite ya impuesto por el backend). Llama a `POST /imports/preview`.
+2. **Mapeo manual** (`column-mapping-form.tsx`), solo si el backend responde `needs_mapping` (no pudo detectar automáticamente fecha + descripción + importe, o debe/haber, por las cabeceras del fichero): un desplegable por cada campo de `ColumnMapping` (fecha y descripción obligatorios; importe como una sola columna o como debe/haber separados, a elegir; fecha valor/referencia/moneda opcionales). Al enviarlo se vuelve a llamar a `preview`, esta vez con `columnMapping` explícito.
+3. **Previsualización**: tarjetas de resumen (filas, nuevas, duplicadas, con error) y una tabla con el estado de cada fila y el motivo si no es "nueva". "Confirmar importación" solo envía las filas con estado `new` (nunca las duplicadas o con error) a `POST /imports/confirm`, y se deshabilita si no hay ninguna nueva.
+
+Tras confirmar, pantalla de éxito con el recuento real devuelto por el servidor y enlaces para importar otro fichero o ir directamente a Transacciones. Confirmar invalida `imports`, `transactions` y `dashboard`.
+
+### Verificación
+
+Probado en el navegador real con dos ficheros CSV ficticios (nunca datos reales, según las normas del proyecto):
+
+- Fichero con cabeceras estándar (`Fecha,Concepto,Importe`): detección automática de columnas, una fila duplicada *dentro del propio fichero* detectada correctamente, importación de las 5 filas nuevas, aparición inmediata en `/transactions`.
+- Edición de un movimiento: asignar categoría, marcar "crear regla automática" → aviso "Se creó una regla de clasificación automática" tras guardar, categoría reflejada en la tabla.
+- Borrado de un movimiento, filtro por fecha (`Desde`) reduciendo correctamente el listado.
+- Segundo fichero con cabeceras no reconocibles (`F. Operacion,Texto,Cargo,Abono`): disparó el asistente de mapeo manual; mapeado fecha/descripción/debe/haber a mano, la previsualización mostró los importes con el signo correcto (abono positivo, cargo negativo) y la importación se confirmó sin problemas.
+- Reimportar el primer fichero completo: las 4 filas que ya existían en la cuenta se marcaron "Ya existe un movimiento igual en esta cuenta" (deduplicación contra la base de datos, no solo dentro del fichero) y solo la fila que había borrado antes salió como "Nueva" — confirma que la huella (`fingerprint`) se recalcula correctamente en cada intento.
+
+**Nota sobre la herramienta de navegador**: no hay ningún `file_upload` disponible en este entorno para adjuntar un fichero real desde disco a un `<input type="file">`, así que los ficheros de prueba se construyeron en memoria dentro de la propia página (`new File([texto], nombre)` + `DataTransfer`, asignado a `input.files` y con el evento `change` disparado) — es la forma estándar de simular una selección de fichero en un test de navegador, no un atajo que se salte la ruta real de subida (`multipart/form-data` llega igual al backend). El resto de la interacción, igual que en el bloque 2, se hizo contra el DOM real vía `javascript_tool` porque `read_page`/`computer` seguían sin componer frames de forma fiable en esta sesión.
+
+### Fuera de alcance en el bloque 3
+
+- Sin selección múltiple para editar/borrar varios movimientos a la vez.
+- Sin exportar el listado de transacciones (CSV/Excel).
+- Sin previsualización de XLSX probada en vivo en este bloque (la detección de formato y el parseo ya tienen cobertura de tests en el backend; la ruta de UI es idéntica a la de CSV, solo cambia el importador que resuelve el backend por extensión).

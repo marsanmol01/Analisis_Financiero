@@ -17,7 +17,7 @@ export class ApiError extends Error {
   }
 }
 
-type QueryValue = string | number | boolean | undefined | null;
+export type QueryValue = string | number | boolean | undefined | null;
 
 interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
@@ -48,15 +48,19 @@ function extractMessage(data: unknown, fallback: string): string {
 
 async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, query } = options;
+  const isFormData = body instanceof FormData;
 
   const response = await fetch(buildUrl(path, query), {
     method,
     credentials: "include",
     headers: {
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      // FormData (subida de ficheros) fija su propio Content-Type con el boundary del
+      // multipart; si lo fijamos nosotros a mano, el navegador no lo sustituye y la peticion
+      // llega sin boundary.
+      ...(body !== undefined && !isFormData ? { "Content-Type": "application/json" } : {}),
       "X-Requested-With": "XMLHttpRequest",
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
   });
 
   if (response.status === 204) {

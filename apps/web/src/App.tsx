@@ -6,6 +6,9 @@ import { RegisterPage } from "./pages/auth/register-page";
 import { DashboardPage } from "./pages/dashboard/dashboard-page";
 import { AccountsPage } from "./pages/accounts/accounts-page";
 import { CategoriesPage } from "./pages/categories/categories-page";
+import { TransactionsPage } from "./pages/transactions/transactions-page";
+import { ImportsPage } from "./pages/imports/imports-page";
+import { NewImportPage } from "./pages/imports/new-import-page";
 import { ComingSoonPage } from "./pages/coming-soon-page";
 
 const router = createBrowserRouter([
@@ -23,7 +26,7 @@ const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { path: "/", element: <DashboardPage /> },
-          { path: "/transactions", element: <ComingSoonPage title="Transacciones" /> },
+          { path: "/transactions", element: <TransactionsPage /> },
           { path: "/accounts", element: <AccountsPage /> },
           { path: "/categories", element: <CategoriesPage /> },
           { path: "/budgets", element: <ComingSoonPage title="Presupuestos" /> },
@@ -32,7 +35,8 @@ const router = createBrowserRouter([
           { path: "/transfers", element: <ComingSoonPage title="Transferencias internas" /> },
           { path: "/merchants", element: <ComingSoonPage title="Comercios" /> },
           { path: "/classification-rules", element: <ComingSoonPage title="Reglas de clasificación" /> },
-          { path: "/imports", element: <ComingSoonPage title="Importaciones" /> },
+          { path: "/imports", element: <ImportsPage /> },
+          { path: "/imports/new", element: <NewImportPage /> },
           { path: "/analytics", element: <ComingSoonPage title="Estadísticas" /> },
           { path: "/settings", element: <ComingSoonPage title="Configuración" /> },
         ],
