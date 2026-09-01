@@ -1,4 +1,4 @@
-# Seguridad — estado tras cierre de Fase 2 (Bloque "Gastos recurrentes")
+# Seguridad — estado tras Fase 3 / Bloque "Motor de estadísticas"
 
 ## Autenticación
 
@@ -39,6 +39,8 @@ Las categorías del sistema (`isSystem=true`) son visibles para todos los usuari
 
 `RecurringService` sigue el mismo patrón: agrupación y `findOne`/`update`/`remove` siempre `where: { userId }` o `account: { userId }`; verificado en [`recurring.isolation.spec.ts`](../apps/api/src/recurring/recurring.isolation.spec.ts) incluyendo que no se agrupan transacciones de dos usuarios distintos aunque coincidan comercio e importe.
 
+`AnalyticsService` (solo lectura) sigue el mismo patrón en las seis consultas que expone; verificado en [`analytics.isolation.spec.ts`](../apps/api/src/analytics/analytics.isolation.spec.ts) que un ingreso de 50.000 € en la cuenta de otro usuario no aparece ni en el resumen ni en el patrimonio del usuario que consulta.
+
 ## Cuentas: no se guardan identificadores bancarios completos
 
 El campo `ibanMask` de `Account` está validado en la capa de API (`IsMaskedAccountIdentifier`): rechaza con `400` cualquier valor que tenga forma de IBAN completo sin enmascarar. Solo se acepta un identificador parcial/enmascarado (ej. `ES91 **** **** **** 1234`).
@@ -58,6 +60,10 @@ Ver [`docs/internal-transfers.md`](internal-transfers.md). El flag `isInternalTr
 ## Gastos recurrentes
 
 Ver [`docs/recurring-detection.md`](recurring-detection.md). Sin superficie de seguridad nueva relevante más allá del aislamiento por `userId` ya mencionado: no ejecuta nada dinámico, no toca `isIncome`/`isExpense`/`isInternalTransfer`, y un grupo manual queda exento de la detección automática para que esta nunca le arrebate transacciones.
+
+## Motor de estadísticas
+
+Ver [`docs/analytics-engine.md`](analytics-engine.md). Módulo enteramente de solo lectura: sin guard CSRF, sin auditoría (no hay nada que auditar en una consulta). Punto de seguridad relevante: **todas** las agregaciones de ingresos/gastos excluyen explícitamente `isInternalTransfer: true` en cada query — verificado como el propio caso de test exigido en los requisitos ("una transferencia interna no suma gasto ni ingreso").
 
 ## Auditoría
 
@@ -81,3 +87,6 @@ Ver [`docs/recurring-detection.md`](recurring-detection.md). Sin superficie de s
 - La ventana de tolerancia en días de `detect()` se pasa por petición, no hay todavía una preferencia persistida por usuario.
 - Grupos recurrentes sin auditoría dedicada (ver [`docs/recurring-detection.md`](recurring-detection.md) para la justificación).
 - Sin desactivación automática de un grupo recurrente cuyo patrón deja de cumplirse (p. ej. suscripción cancelada); persiste hasta que el usuario lo desactive o borre a mano.
+- Patrimonio calculado sobre `Account.balance` (saldo manual/último conocido), no derivado del historial de transacciones importadas — ver [`docs/analytics-engine.md`](analytics-engine.md) para la justificación.
+- Distinción activo/pasivo solo por `AccountType === LOAN`; no contempla, por ejemplo, una tarjeta de crédito con saldo pendiente como pasivo.
+- Sin comparación interanual todavía en el motor de estadísticas; se añadirá si hace falta al construir el dashboard.
