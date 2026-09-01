@@ -66,6 +66,12 @@ enum RuleOperator {
   REGEX
 }
 
+enum SavingsGoalStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
 model User {
   id                String    @id @default(uuid())
   email             String    @unique
@@ -86,6 +92,7 @@ model User {
   internalTransfers   InternalTransfer[]
   recurringGroups     RecurringGroup[]
   budgets             Budget[]
+  savingsGoals        SavingsGoal[]
 
   @@map("users")
 }
@@ -113,6 +120,7 @@ model Account {
   imports             Import[]
   classificationRules ClassificationRule[]
   recurringGroups     RecurringGroup[]
+  savingsGoals        SavingsGoal[]
 
   @@index([userId])
   @@map("accounts")
@@ -317,6 +325,31 @@ model Budget {
   @@unique([userId, categoryId])
   @@index([userId])
   @@map("budgets")
+}
+
+// Objetivo de ahorro. El progreso se rastrea de dos formas excluyentes: si accountId esta
+// informado, el progreso ES el saldo de esa cuenta (modo automatico); si no, es currentAmount,
+// que el usuario actualiza a mano (modo manual). El resto de calculos (ahorro necesario
+// mensual, desviacion, proyeccion...) son derivados, no se guardan (ver savings-goal-math.ts).
+model SavingsGoal {
+  id            String            @id @default(uuid())
+  userId        String            @map("user_id")
+  accountId     String?           @map("account_id")
+  name          String
+  targetAmount  Decimal           @map("target_amount") @db.Decimal(14, 2)
+  initialAmount Decimal           @default(0) @map("initial_amount") @db.Decimal(14, 2)
+  currentAmount Decimal           @default(0) @map("current_amount") @db.Decimal(14, 2)
+  startDate     DateTime          @map("start_date")
+  targetDate    DateTime          @map("target_date")
+  status        SavingsGoalStatus @default(ACTIVE)
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("savings_goals")
 }
 
 // Registro de una importacion confirmada (auditoria de "importaciones"). El preview no persiste

@@ -1,4 +1,4 @@
-# Seguridad — estado tras Fase 3 / Bloque "Presupuestos"
+# Seguridad — estado tras Fase 3 / Bloque "Objetivos de ahorro"
 
 ## Autenticación
 
@@ -13,7 +13,7 @@
 
 Mitigación ligera aplicada a los endpoints mutantes de `auth` (`register`, `login`, `logout`): se exige la cabecera `X-Requested-With: XMLHttpRequest`. Una petición cross-site "simple" (envío de formulario, `<img>`, etc.) no puede fijar esa cabecera sin disparar un preflight CORS, y CORS solo permite el origen configurado en `WEB_ORIGIN`.
 
-Ahora también aplicado a los endpoints mutantes de `accounts`, `categories`, `transactions`, `imports` (incluida la subida de fichero en `/imports/preview`, que es precisamente el vector clásico de CSRF vía formulario), `merchants`, `classification-rules`, `transfers` (`POST /transfers/detect`, `PATCH /transfers/:id`), `recurring` (`POST /recurring/detect`, `POST /recurring/manual`, `PATCH /recurring/:id`, `DELETE /recurring/:id`) y `budgets` (`POST`/`PATCH`/`DELETE /budgets`). Sigue siendo por-ruta en vez de global; cuando el número de módulos con mutaciones sea mayor, conviene revisar si merece la pena moverlo a guard global con lista de exclusión para `GET`.
+Ahora también aplicado a los endpoints mutantes de `accounts`, `categories`, `transactions`, `imports` (incluida la subida de fichero en `/imports/preview`, que es precisamente el vector clásico de CSRF vía formulario), `merchants`, `classification-rules`, `transfers` (`POST /transfers/detect`, `PATCH /transfers/:id`), `recurring` (`POST /recurring/detect`, `POST /recurring/manual`, `PATCH /recurring/:id`, `DELETE /recurring/:id`), `budgets` (`POST`/`PATCH`/`DELETE /budgets`) y `savings-goals` (`POST`/`PATCH`/`DELETE /savings-goals`). Sigue siendo por-ruta en vez de global; cuando el número de módulos con mutaciones sea mayor, conviene revisar si merece la pena moverlo a guard global con lista de exclusión para `GET`.
 
 ## Rate limiting
 
@@ -43,6 +43,8 @@ Las categorías del sistema (`isSystem=true`) son visibles para todos los usuari
 
 `BudgetsService` sigue el mismo patrón; verificado en [`budgets.isolation.spec.ts`](../apps/api/src/budgets/budgets.isolation.spec.ts) que un gasto de 50.000 € de otro usuario no se cuela en el progreso del presupuesto general de quien consulta.
 
+`SavingsGoalsService` sigue el mismo patrón; además, en modo automático (objetivo vinculado a una cuenta), la comprobación de que esa cuenta pertenece al usuario ocurre al crear/editar el vínculo, no solo al leer el progreso. Verificado en [`savings-goals.isolation.spec.ts`](../apps/api/src/savings-goals/savings-goals.isolation.spec.ts).
+
 ## Cuentas: no se guardan identificadores bancarios completos
 
 El campo `ibanMask` de `Account` está validado en la capa de API (`IsMaskedAccountIdentifier`): rechaza con `400` cualquier valor que tenga forma de IBAN completo sin enmascarar. Solo se acepta un identificador parcial/enmascarado (ej. `ES91 **** **** **** 1234`).
@@ -71,6 +73,10 @@ Ver [`docs/analytics-engine.md`](analytics-engine.md). Módulo enteramente de so
 
 Ver [`docs/budgets.md`](budgets.md). Sin superficie de seguridad nueva más allá del aislamiento por `userId`: es un módulo de configuración (importes de referencia), no cambia clasificación financiera ni flags de ninguna transacción.
 
+## Objetivos de ahorro
+
+Ver [`docs/savings-goals.md`](savings-goals.md). Sin superficie de seguridad nueva más allá del aislamiento por `userId`. Punto de diseño relevante para integridad de datos: en modo automático (vinculado a una cuenta), el campo `currentAmount` no se puede editar a mano — se rechaza explícitamente con `400` — para que nunca quede desincronizado del saldo real de la cuenta, que es la única fuente de verdad en ese modo.
+
 ## Auditoría
 
 `audit_logs` registra: `REGISTER`, `LOGIN_SUCCESS`, `LOGIN_FAILURE`, `LOGIN_LOCKED`, `LOGOUT`, `ACCOUNT_CREATED`, `ACCOUNT_UPDATED`, `ACCOUNT_DELETED`, `IMPORT_CREATED`, `TRANSACTION_UPDATED`, `TRANSACTION_DELETED`, `RULE_CREATED`, `RULE_UPDATED`, `RULE_DELETED`, `TRANSFER_STATUS_CHANGED`, con `user_id` (cuando aplica), IP y metadata mínima (nunca contraseñas ni tokens, ni el contenido de la cuenta/transacción/regla — solo ids y contadores). `AuditService.record()` es el único punto de escritura. `RULE_CREATED` se audita **dentro del servicio** (`ClassificationRulesService`), no en el controller, precisamente porque se puede crear una regla desde dos caminos distintos (`POST /classification-rules` y la corrección de una transacción con `createRule: true`) y ambos deben quedar cubiertos igual. Las mutaciones de categorías y de comercios/alias siguen sin auditarse (no estaban en la lista de eventos original).
@@ -98,3 +104,6 @@ Ver [`docs/budgets.md`](budgets.md). Sin superficie de seguridad nueva más all�
 - Sin comparación interanual todavía en el motor de estadísticas; se añadirá si hace falta al construir el dashboard.
 - Presupuestos sin auditoría dedicada (ver [`docs/budgets.md`](budgets.md)).
 - Sin presupuestos por cuenta ni con periodo distinto de mensual.
+- Objetivos de ahorro sin auditoría dedicada (ver [`docs/savings-goals.md`](savings-goals.md)).
+- Objetivos de ahorro sin historial de aportaciones individuales; el modo manual solo guarda el importe acumulado actual.
+- Los cálculos de meses en objetivos de ahorro usan una duración media (365,25/12 días), no aritmética de calendario exacta — margen de hasta ~3 días por mes, aceptable para una cifra orientativa.
