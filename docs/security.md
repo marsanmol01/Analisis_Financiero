@@ -1,4 +1,4 @@
-# Seguridad — estado tras Fase 3 / Bloque "Motor de estadísticas"
+# Seguridad — estado tras Fase 3 / Bloque "Presupuestos"
 
 ## Autenticación
 
@@ -13,7 +13,7 @@
 
 Mitigación ligera aplicada a los endpoints mutantes de `auth` (`register`, `login`, `logout`): se exige la cabecera `X-Requested-With: XMLHttpRequest`. Una petición cross-site "simple" (envío de formulario, `<img>`, etc.) no puede fijar esa cabecera sin disparar un preflight CORS, y CORS solo permite el origen configurado en `WEB_ORIGIN`.
 
-Ahora también aplicado a los endpoints mutantes de `accounts`, `categories`, `transactions`, `imports` (incluida la subida de fichero en `/imports/preview`, que es precisamente el vector clásico de CSRF vía formulario), `merchants`, `classification-rules`, `transfers` (`POST /transfers/detect`, `PATCH /transfers/:id`) y `recurring` (`POST /recurring/detect`, `POST /recurring/manual`, `PATCH /recurring/:id`, `DELETE /recurring/:id`). Sigue siendo por-ruta en vez de global; cuando el número de módulos con mutaciones sea mayor, conviene revisar si merece la pena moverlo a guard global con lista de exclusión para `GET`.
+Ahora también aplicado a los endpoints mutantes de `accounts`, `categories`, `transactions`, `imports` (incluida la subida de fichero en `/imports/preview`, que es precisamente el vector clásico de CSRF vía formulario), `merchants`, `classification-rules`, `transfers` (`POST /transfers/detect`, `PATCH /transfers/:id`), `recurring` (`POST /recurring/detect`, `POST /recurring/manual`, `PATCH /recurring/:id`, `DELETE /recurring/:id`) y `budgets` (`POST`/`PATCH`/`DELETE /budgets`). Sigue siendo por-ruta en vez de global; cuando el número de módulos con mutaciones sea mayor, conviene revisar si merece la pena moverlo a guard global con lista de exclusión para `GET`.
 
 ## Rate limiting
 
@@ -41,6 +41,8 @@ Las categorías del sistema (`isSystem=true`) son visibles para todos los usuari
 
 `AnalyticsService` (solo lectura) sigue el mismo patrón en las seis consultas que expone; verificado en [`analytics.isolation.spec.ts`](../apps/api/src/analytics/analytics.isolation.spec.ts) que un ingreso de 50.000 € en la cuenta de otro usuario no aparece ni en el resumen ni en el patrimonio del usuario que consulta.
 
+`BudgetsService` sigue el mismo patrón; verificado en [`budgets.isolation.spec.ts`](../apps/api/src/budgets/budgets.isolation.spec.ts) que un gasto de 50.000 € de otro usuario no se cuela en el progreso del presupuesto general de quien consulta.
+
 ## Cuentas: no se guardan identificadores bancarios completos
 
 El campo `ibanMask` de `Account` está validado en la capa de API (`IsMaskedAccountIdentifier`): rechaza con `400` cualquier valor que tenga forma de IBAN completo sin enmascarar. Solo se acepta un identificador parcial/enmascarado (ej. `ES91 **** **** **** 1234`).
@@ -64,6 +66,10 @@ Ver [`docs/recurring-detection.md`](recurring-detection.md). Sin superficie de s
 ## Motor de estadísticas
 
 Ver [`docs/analytics-engine.md`](analytics-engine.md). Módulo enteramente de solo lectura: sin guard CSRF, sin auditoría (no hay nada que auditar en una consulta). Punto de seguridad relevante: **todas** las agregaciones de ingresos/gastos excluyen explícitamente `isInternalTransfer: true` en cada query — verificado como el propio caso de test exigido en los requisitos ("una transferencia interna no suma gasto ni ingreso").
+
+## Presupuestos
+
+Ver [`docs/budgets.md`](budgets.md). Sin superficie de seguridad nueva más allá del aislamiento por `userId`: es un módulo de configuración (importes de referencia), no cambia clasificación financiera ni flags de ninguna transacción.
 
 ## Auditoría
 
@@ -90,3 +96,5 @@ Ver [`docs/analytics-engine.md`](analytics-engine.md). Módulo enteramente de so
 - Patrimonio calculado sobre `Account.balance` (saldo manual/último conocido), no derivado del historial de transacciones importadas — ver [`docs/analytics-engine.md`](analytics-engine.md) para la justificación.
 - Distinción activo/pasivo solo por `AccountType === LOAN`; no contempla, por ejemplo, una tarjeta de crédito con saldo pendiente como pasivo.
 - Sin comparación interanual todavía en el motor de estadísticas; se añadirá si hace falta al construir el dashboard.
+- Presupuestos sin auditoría dedicada (ver [`docs/budgets.md`](budgets.md)).
+- Sin presupuestos por cuenta ni con periodo distinto de mensual.

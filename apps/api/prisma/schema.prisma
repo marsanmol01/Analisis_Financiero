@@ -85,6 +85,7 @@ model User {
   classificationRules ClassificationRule[]
   internalTransfers   InternalTransfer[]
   recurringGroups     RecurringGroup[]
+  budgets             Budget[]
 
   @@map("users")
 }
@@ -131,6 +132,7 @@ model Category {
   merchantDefaults    Merchant[]
   classificationRules ClassificationRule[]
   recurringGroups     RecurringGroup[]
+  budgets             Budget[]
 
   @@index([userId])
   @@map("categories")
@@ -293,6 +295,28 @@ model RecurringGroup {
   @@index([userId])
   @@index([accountId])
   @@map("recurring_groups")
+}
+
+// Presupuesto "estandar" mensual: no se recrea cada mes, se compara contra el gasto real de
+// cualquier mes que se consulte. categoryId=null significa presupuesto general (todo el gasto).
+// La unicidad (un presupuesto general y como mucho uno por categoria y usuario) se comprueba en
+// el servicio, no solo con el @@unique de abajo: con categoryId NULL, Postgres no impide filas
+// duplicadas via una unique constraint (cada NULL se considera distinto).
+model Budget {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  categoryId String?  @map("category_id")
+  amount     Decimal  @db.Decimal(14, 2)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id])
+
+  @@unique([userId, categoryId])
+  @@index([userId])
+  @@map("budgets")
 }
 
 // Registro de una importacion confirmada (auditoria de "importaciones"). El preview no persiste

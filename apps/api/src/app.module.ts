@@ -15,6 +15,7 @@ import { ClassificationModule } from "./classification/classification.module";
 import { TransfersModule } from "./transfers/transfers.module";
 import { RecurringModule } from "./recurring/recurring.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
+import { BudgetsModule } from "./budgets/budgets.module";
 import { HealthController } from "./health/health.controller";
 
 @Module({
@@ -39,6 +40,7 @@ import { HealthController } from "./health/health.controller";
     TransfersModule,
     RecurringModule,
     AnalyticsModule,
+    BudgetsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
