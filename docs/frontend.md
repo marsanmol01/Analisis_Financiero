@@ -148,3 +148,36 @@ Probado en el navegador real con dos ficheros CSV ficticios (nunca datos reales,
 - Sin selección múltiple para editar/borrar varios movimientos a la vez.
 - Sin exportar el listado de transacciones (CSV/Excel).
 - Sin previsualización de XLSX probada en vivo en este bloque (la detección de formato y el parseo ya tienen cobertura de tests en el backend; la ruta de UI es idéntica a la de CSV, solo cambia el importador que resuelve el backend por extensión).
+
+## Bloque 4: Comercios + Reglas de clasificación
+
+### Alcance
+
+`/merchants` (alta, edición, borrado y gestión de alias) y `/classification-rules` (alta, edición, borrado, y una acción para reclasificar movimientos ya existentes). Es el bloque que completa la UI del motor de clasificación determinista que el backend ya tenía desde la Fase 2: hasta ahora solo se podía crear una regla indirectamente al corregir un movimiento a mano (bloque 3); aquí se gestionan directamente.
+
+### Comercios
+
+- Los alias no se gestionan en el diálogo de alta/edición (que solo cubre nombre y categoría por defecto): tienen su propio endpoint (`POST/DELETE /merchants/:id/aliases`) y su propio ciclo de vida, así que se gestionan directamente en la tarjeta de cada comercio — añadir con un campo + botón, quitar con una "x" en cada insignia — sin abrir ningún diálogo. `MERCHANTS_QUERY_KEY` se invalida tras cada mutación de alias igual que tras editar el propio comercio, porque el listado (`findAll`) ya incluye los alias (`include: { aliases: true }` en el backend), no hace falta una query separada.
+- El aviso bajo el selector de categoría por defecto explica su efecto real: solo se aplica cuando ninguna regla de clasificación coincide antes (el orden real de prioridad — regla > comercio — vive en `ClassificationService.classify()` del backend).
+
+### Reglas de clasificación
+
+- `RuleField` en el backend solo tiene un valor posible (`DESCRIPTION`) por ahora, así que el formulario no incluye un selector de campo: se omite y el backend aplica el valor por defecto.
+- El operador `REGEX` reutiliza la misma validación que ya hace el backend (`new RegExp(value)` antes de guardar); el frontend no duplica esa validación, solo deja pasar el error 400 tal cual si el patrón es inválido.
+- Los importes mínimo/máximo llevan una nota explícita de que los gastos son negativos en este modelo de datos, para que un rango de gasto "entre 1 € y 100 €" se escriba como -100 a -1 y no al revés.
+- Botón **"Reclasificar movimientos existentes"**, sobre `POST /classification/reclassify`: vuelve a evaluar todas las reglas y comercios contra los movimientos que no se han categorizado a mano (`classificationSource` distinto de `"manual"`), sin tocar nunca una corrección manual. Muestra el resultado real devuelto por el servidor ("Se revisaron X, se actualizaron Y") como aviso descartable, igual que el patrón ya usado en Transacciones.
+
+### Verificación
+
+Probado en el navegador real, encadenando comercios, reglas e importación para comprobar el motor completo, no solo cada CRUD por separado:
+
+- Alta de un comercio con categoría por defecto, alta y borrado de un alias, edición del nombre, borrado del comercio.
+- Importado un movimiento ficticio ("GASOLINERA FICTICIA CENTRO") sin ninguna regla activa → quedó sin categoría, como se esperaba.
+- Creada una regla ("Contiene GASOLINERA" → categoría Transporte) y pulsado "Reclasificar movimientos existentes" → respuesta real del servidor "Se revisaron 1 movimientos sin categorizar a mano; se actualizaron 1", y el movimiento pasó a mostrar "Transporte" en `/transactions` sin recargar la página.
+- Edición de la prioridad de la regla, y borrado.
+
+### Fuera de alcance en el bloque 4
+
+- Sin previsualización de "a qué movimientos afectaría esta regla" antes de guardarla (solo se ve el efecto después, vía reclasificar).
+- Sin reordenar reglas arrastrando (la prioridad se edita como número).
+- Sin fusionar comercios duplicados.

@@ -1,6 +1,21 @@
-// Tipado minimo, de solo lectura: la gestion completa de comercios (alta, edicion, alias)
-// llega en su propio bloque del frontend. Aqui solo se usa para resolver nombres en listados.
+export interface MerchantAlias {
+  id: string;
+  merchantId: string;
+  pattern: string;
+  createdAt: string;
+}
+
 export interface Merchant {
   id: string;
+  userId: string;
   name: string;
+  defaultCategoryId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  aliases: MerchantAlias[];
+}
+
+export interface MerchantInput {
+  name: string;
+  defaultCategoryId?: string;
 }
