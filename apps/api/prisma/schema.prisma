@@ -49,6 +49,15 @@ enum RuleField {
   DESCRIPTION
 }
 
+enum RecurringFrequency {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  ANNUAL
+  OTHER
+}
+
 enum RuleOperator {
   CONTAINS
   STARTS_WITH
@@ -75,6 +84,7 @@ model User {
   merchants           Merchant[]
   classificationRules ClassificationRule[]
   internalTransfers   InternalTransfer[]
+  recurringGroups     RecurringGroup[]
 
   @@map("users")
 }
@@ -101,6 +111,7 @@ model Account {
   transactions        Transaction[]
   imports             Import[]
   classificationRules ClassificationRule[]
+  recurringGroups     RecurringGroup[]
 
   @@index([userId])
   @@map("accounts")
@@ -119,6 +130,7 @@ model Category {
   transactions        Transaction[]
   merchantDefaults    Merchant[]
   classificationRules ClassificationRule[]
+  recurringGroups     RecurringGroup[]
 
   @@index([userId])
   @@map("categories")
@@ -129,6 +141,7 @@ model Transaction {
   accountId             String    @map("account_id")
   categoryId            String?   @map("category_id")
   merchantId            String?   @map("merchant_id")
+  recurringGroupId      String?   @map("recurring_group_id")
   date                  DateTime
   valueDate             DateTime? @map("value_date")
   originalDescription   String    @map("original_description")
@@ -148,9 +161,10 @@ model Transaction {
   updatedAt             DateTime  @updatedAt @map("updated_at")
   deletedAt             DateTime? @map("deleted_at")
 
-  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  category Category? @relation(fields: [categoryId], references: [id])
-  merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  account        Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category       Category?       @relation(fields: [categoryId], references: [id])
+  merchant       Merchant?       @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  recurringGroup RecurringGroup? @relation(fields: [recurringGroupId], references: [id], onDelete: SetNull)
 
   outgoingTransfer InternalTransfer? @relation("OutgoingTransfer")
   incomingTransfer InternalTransfer? @relation("IncomingTransfer")
@@ -159,6 +173,7 @@ model Transaction {
   @@index([accountId])
   @@index([categoryId])
   @@index([merchantId])
+  @@index([recurringGroupId])
   @@map("transactions")
 }
 
@@ -197,10 +212,11 @@ model Merchant {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  defaultCategory Category?       @relation(fields: [defaultCategoryId], references: [id])
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultCategory Category?        @relation(fields: [defaultCategoryId], references: [id])
   aliases         MerchantAlias[]
   transactions    Transaction[]
+  recurringGroups RecurringGroup[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -245,6 +261,38 @@ model ClassificationRule {
 
   @@index([userId])
   @@map("classification_rules")
+}
+
+// Patron de gasto recurrente detectado (o creado a mano). "description" es la clave alternativa
+// de agrupacion cuando no hay comercio identificado; cuando lo hay, se agrupa por merchantId.
+// isManual distingue un grupo creado explicitamente por el usuario (POST /recurring/manual) de
+// uno propuesto por el detector; ambos son igual de editables/desactivables despues.
+model RecurringGroup {
+  id                String             @id @default(uuid())
+  userId            String             @map("user_id")
+  accountId         String             @map("account_id")
+  merchantId        String?            @map("merchant_id")
+  categoryId        String?            @map("category_id")
+  description       String
+  frequency         RecurringFrequency
+  typicalAmount     Decimal            @map("typical_amount") @db.Decimal(14, 2)
+  lastDate          DateTime           @map("last_date")
+  nextEstimatedDate DateTime?          @map("next_estimated_date")
+  isActive          Boolean            @default(true) @map("is_active")
+  isManual          Boolean            @default(false) @map("is_manual")
+  confidence        Decimal?           @db.Decimal(4, 3)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  merchant     Merchant?     @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  category     Category?     @relation(fields: [categoryId], references: [id])
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([accountId])
+  @@map("recurring_groups")
 }
 
 // Registro de una importacion confirmada (auditoria de "importaciones"). El preview no persiste

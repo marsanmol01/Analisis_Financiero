@@ -1,4 +1,4 @@
-# Seguridad — estado tras Fase 2 / Bloque "Transferencias internas"
+# Seguridad — estado tras cierre de Fase 2 (Bloque "Gastos recurrentes")
 
 ## Autenticación
 
@@ -13,7 +13,7 @@
 
 Mitigación ligera aplicada a los endpoints mutantes de `auth` (`register`, `login`, `logout`): se exige la cabecera `X-Requested-With: XMLHttpRequest`. Una petición cross-site "simple" (envío de formulario, `<img>`, etc.) no puede fijar esa cabecera sin disparar un preflight CORS, y CORS solo permite el origen configurado en `WEB_ORIGIN`.
 
-Ahora también aplicado a los endpoints mutantes de `accounts`, `categories`, `transactions`, `imports` (incluida la subida de fichero en `/imports/preview`, que es precisamente el vector clásico de CSRF vía formulario), `merchants`, `classification-rules` y `transfers` (`POST /transfers/detect`, `PATCH /transfers/:id`). Sigue siendo por-ruta en vez de global; cuando el número de módulos con mutaciones sea mayor, conviene revisar si merece la pena moverlo a guard global con lista de exclusión para `GET`.
+Ahora también aplicado a los endpoints mutantes de `accounts`, `categories`, `transactions`, `imports` (incluida la subida de fichero en `/imports/preview`, que es precisamente el vector clásico de CSRF vía formulario), `merchants`, `classification-rules`, `transfers` (`POST /transfers/detect`, `PATCH /transfers/:id`) y `recurring` (`POST /recurring/detect`, `POST /recurring/manual`, `PATCH /recurring/:id`, `DELETE /recurring/:id`). Sigue siendo por-ruta en vez de global; cuando el número de módulos con mutaciones sea mayor, conviene revisar si merece la pena moverlo a guard global con lista de exclusión para `GET`.
 
 ## Rate limiting
 
@@ -37,6 +37,8 @@ Las categorías del sistema (`isSystem=true`) son visibles para todos los usuari
 
 `TransfersService.detect()` obtiene los dos pools de candidatos (salientes/entrantes) siempre filtrados por `account: { userId }`: es estructuralmente imposible que proponga un match entre transacciones de dos usuarios distintos, aunque coincidan importe y fecha exactos — verificado explícitamente en [`transfers.isolation.spec.ts`](../apps/api/src/transfers/transfers.isolation.spec.ts).
 
+`RecurringService` sigue el mismo patrón: agrupación y `findOne`/`update`/`remove` siempre `where: { userId }` o `account: { userId }`; verificado en [`recurring.isolation.spec.ts`](../apps/api/src/recurring/recurring.isolation.spec.ts) incluyendo que no se agrupan transacciones de dos usuarios distintos aunque coincidan comercio e importe.
+
 ## Cuentas: no se guardan identificadores bancarios completos
 
 El campo `ibanMask` de `Account` está validado en la capa de API (`IsMaskedAccountIdentifier`): rechaza con `400` cualquier valor que tenga forma de IBAN completo sin enmascarar. Solo se acepta un identificador parcial/enmascarado (ej. `ES91 **** **** **** 1234`).
@@ -52,6 +54,10 @@ Ver [`docs/classification-engine.md`](classification-engine.md). Punto de seguri
 ## Transferencias internas
 
 Ver [`docs/internal-transfers.md`](internal-transfers.md). El flag `isInternalTransfer` de una transacción solo se activa mientras su `InternalTransfer` está `CONFIRMED`; `PENDING`/`REJECTED` no la excluyen de ingresos/gastos. `detect()` es idempotente: una transacción con cualquier `InternalTransfer` asociado (incluidas las rechazadas) no vuelve a proponerse.
+
+## Gastos recurrentes
+
+Ver [`docs/recurring-detection.md`](recurring-detection.md). Sin superficie de seguridad nueva relevante más allá del aislamiento por `userId` ya mencionado: no ejecuta nada dinámico, no toca `isIncome`/`isExpense`/`isInternalTransfer`, y un grupo manual queda exento de la detección automática para que esta nunca le arrebate transacciones.
 
 ## Auditoría
 
@@ -73,3 +79,5 @@ Ver [`docs/internal-transfers.md`](internal-transfers.md). El flag `isInternalTr
 - `reclassify` recorre las transacciones candidatas con un `update` por fila (no en batch); a escala de uso personal (cientos/pocos miles de movimientos) no es un problema, pero si se usa sobre históricos muy grandes convendría paralelizar o usar una única query masiva.
 - Detección de transferencias sin tolerancia de importe (para comisiones de red, por ejemplo): exige coincidencia exacta del importe absoluto. Ver [`docs/internal-transfers.md`](internal-transfers.md) para la justificación.
 - La ventana de tolerancia en días de `detect()` se pasa por petición, no hay todavía una preferencia persistida por usuario.
+- Grupos recurrentes sin auditoría dedicada (ver [`docs/recurring-detection.md`](recurring-detection.md) para la justificación).
+- Sin desactivación automática de un grupo recurrente cuyo patrón deja de cumplirse (p. ej. suscripción cancelada); persiste hasta que el usuario lo desactive o borre a mano.
