@@ -1,13 +1,24 @@
-# Seguridad — estado tras cierre de Fase 3 (Bloque "Dashboard")
+# Seguridad — estado tras 2FA (TOTP)
 
 ## Autenticación
 
 - Contraseñas: hash con **Argon2id** (`argon2` npm package), nunca texto plano.
 - Sesión: `express-session` con almacén en PostgreSQL (`connect-pg-simple`), cookie `pf.sid` con `httpOnly`, `sameSite=lax`, `secure` en producción.
-- Regeneración de sesión en cada login (previene fijación de sesión).
-- Bloqueo por fuerza bruta: tras `AUTH_MAX_FAILED_ATTEMPTS` (por defecto 5) intentos fallidos, la cuenta queda bloqueada `AUTH_LOCKOUT_MINUTES` (por defecto 15) minutos. El contador se resetea en login correcto.
+- Regeneración de sesión en cada login (previene fijación de sesión) — y también al pasar de "pendiente de segundo factor" a autenticado, ver más abajo.
+- Bloqueo por fuerza bruta: tras `AUTH_MAX_FAILED_ATTEMPTS` (por defecto 5) intentos fallidos, la cuenta queda bloqueada `AUTH_LOCKOUT_MINUTES` (por defecto 15) minutos. El contador se resetea solo cuando el login se completa de verdad (ver 2FA).
 - El login no distingue en su respuesta entre "email no existe" y "contraseña incorrecta" (mismo mensaje, coste temporal similar) para no filtrar qué emails están registrados.
-- 2FA (TOTP): campos `totp_secret_encrypted` / `totp_enabled` ya están en el modelo de datos; la implementación de los endpoints se hace en un paso posterior.
+
+## Verificación en dos pasos (2FA / TOTP)
+
+- Librería `otplib` (TOTP estándar, compatible con Google Authenticator, Authy, 1Password...), 6 dígitos, 30s de tolerancia a cada lado del paso actual para absorber el desfase de reloj típico entre el móvil y el servidor.
+- El secreto se guarda **cifrado en reposo** (nunca en claro) con `EncryptionService` (AES-256-GCM, autenticado). La clave vive en `ENCRYPTION_KEY` (32 bytes en base64); el arranque de la API falla explícitamente si no está definida o conserva el valor de ejemplo — mismo patrón que ya existía para `SESSION_SECRET`. Es el primer campo cifrado de la aplicación (`docs/security.md` lo dejaba como pendiente explícito).
+- **Activación**: `POST /auth/2fa/setup` genera y guarda un secreto nuevo (todavía sin activar) y devuelve el código QR (`qrcode`, generado en el servidor) más el secreto en texto para introducir a mano; `POST /auth/2fa/enable` lo confirma con un código real. Repetir `setup` sustituye cualquier secreto pendiente sin confirmar.
+- **Login en dos pasos**: si el usuario tiene el 2FA activo, la contraseña correcta ya no abre sesión — `POST /auth/login` devuelve `{status: "totp_required"}` y dentro de la sesión (regenerada) se guarda `pendingTotpUserId`, **nunca** `userId`: `SessionAuthGuard` sigue rechazando la petición mientras solo exista ese estado intermedio (verificado explícitamente: `GET /auth/me` sigue devolviendo 401 en ese punto). `POST /auth/2fa/verify-login` completa el login con el código.
+- **El contador de fuerza bruta es el mismo para contraseña y código**: un código TOTP incorrecto incrementa `failedLoginCount` exactamente igual que una contraseña incorrecta, y puede bloquear la cuenta. Solo se resetea cuando el login se completa del todo (con el segundo factor si aplica) — acertar la contraseña pero fallar el código repetidamente sigue contando como intentos fallidos sobre la cuenta.
+- **Desactivación**: `POST /auth/2fa/disable` exige contraseña **y** código correctos a la vez (no basta con robar la sesión activa ni con solo la contraseña); borra el secreto cifrado al desactivar.
+- Nuevos eventos de auditoría `TOTP_ENABLED` / `TOTP_DISABLED`.
+- Cubierto por [`auth.service.spec.ts`](../apps/api/src/auth/auth.service.spec.ts) (unitario, incluye el nuevo estado `totp_required` y el contador de fallos compartido), [`totp.spec.ts`](../apps/api/src/auth/totp.spec.ts) (generación/verificación de códigos reales), [`encryption.service.spec.ts`](../apps/api/src/crypto/encryption.service.spec.ts) (cifrado/descifrado, manipulación detectada, clave incorrecta) y [`auth.totp.integration.spec.ts`](../apps/api/src/auth/auth.totp.integration.spec.ts), que es integración real contra la base de datos: comprueba que el secreto se guarda cifrado (nunca aparece en claro en la fila), el ciclo completo activar → login en dos pasos → desactivar, y que tras desactivarlo el login vuelve a completarse solo con la contraseña.
+- Verificado además a nivel HTTP real (con cookies de sesión reales, cabecera CSRF, y JSON) en el navegador/API en vivo durante el desarrollo: registro, login sin 2FA, activación con QR, login exigiendo el segundo factor, código incorrecto rechazado, código correcto completando el login, desactivación rechazada con contraseña incorrecta y con código incorrecto por separado, desactivación correcta, y vuelta al login directo.
 
 ## CSRF
 
@@ -85,16 +96,17 @@ Ver [`docs/dashboard.md`](dashboard.md). Sin superficie de seguridad nueva: solo
 
 ## Auditoría
 
-`audit_logs` registra: `REGISTER`, `LOGIN_SUCCESS`, `LOGIN_FAILURE`, `LOGIN_LOCKED`, `LOGOUT`, `ACCOUNT_CREATED`, `ACCOUNT_UPDATED`, `ACCOUNT_DELETED`, `IMPORT_CREATED`, `TRANSACTION_UPDATED`, `TRANSACTION_DELETED`, `RULE_CREATED`, `RULE_UPDATED`, `RULE_DELETED`, `TRANSFER_STATUS_CHANGED`, con `user_id` (cuando aplica), IP y metadata mínima (nunca contraseñas ni tokens, ni el contenido de la cuenta/transacción/regla — solo ids y contadores). `AuditService.record()` es el único punto de escritura. `RULE_CREATED` se audita **dentro del servicio** (`ClassificationRulesService`), no en el controller, precisamente porque se puede crear una regla desde dos caminos distintos (`POST /classification-rules` y la corrección de una transacción con `createRule: true`) y ambos deben quedar cubiertos igual. Las mutaciones de categorías y de comercios/alias siguen sin auditarse (no estaban en la lista de eventos original).
+`audit_logs` registra: `REGISTER`, `LOGIN_SUCCESS`, `LOGIN_FAILURE`, `LOGIN_LOCKED`, `LOGOUT`, `ACCOUNT_CREATED`, `ACCOUNT_UPDATED`, `ACCOUNT_DELETED`, `IMPORT_CREATED`, `TRANSACTION_UPDATED`, `TRANSACTION_DELETED`, `RULE_CREATED`, `RULE_UPDATED`, `RULE_DELETED`, `TRANSFER_STATUS_CHANGED`, `TOTP_ENABLED`, `TOTP_DISABLED`, con `user_id` (cuando aplica), IP y metadata mínima (nunca contraseñas ni tokens, ni el contenido de la cuenta/transacción/regla — solo ids y contadores). `AuditService.record()` es el único punto de escritura. `RULE_CREATED` se audita **dentro del servicio** (`ClassificationRulesService`), no en el controller, precisamente porque se puede crear una regla desde dos caminos distintos (`POST /classification-rules` y la corrección de una transacción con `createRule: true`) y ambos deben quedar cubiertos igual. Las mutaciones de categorías y de comercios/alias siguen sin auditarse (no estaban en la lista de eventos original).
 
 ## Secretos
 
-`SESSION_SECRET` es obligatorio; el arranque de la API falla explícitamente si no está definido o si conserva el valor de ejemplo de `.env.example`.
+`SESSION_SECRET` y `ENCRYPTION_KEY` son obligatorios; el arranque de la API falla explícitamente si alguno no está definido o conserva el valor de ejemplo de `.env.example`.
 
 ## Pendiente explícito (deuda conocida, no bloqueante para este paso)
 
-- Cifrado a nivel de aplicación: no hay todavía ningún campo que lo requiera (no se almacena nada suficientemente sensible más allá del hash de contraseña). Se documentará aquí en cuanto se introduzca el primer campo cifrado (candidato: `totp_secret_encrypted` cuando se implemente 2FA).
 - CSP específica de producción.
+- 2FA sin códigos de recuperación (backup codes): si el usuario pierde el dispositivo con la app de autenticación, hoy no hay forma de recuperar el acceso salvo intervención manual directa sobre la base de datos. Es la laguna más importante de esta primera versión del 2FA.
+- 2FA sin opción de "recordar este dispositivo": cada login pide el código, siempre, sin excepción de confianza por dispositivo/tiempo.
 - Mutaciones de categorías sin auditar (ver arriba).
 - Borrado de categorías es físico (`delete`), no soft-delete; a diferencia de cuentas y transacciones, no hay razón todavía para conservar el historial de una categoría borrada. Se revisará si en Fase 2 las reglas de clasificación referencian categorías por id de forma que un borrado deba bloquearse o degradar en cascada.
 - Sanitización de inyección de fórmulas CSV/Excel (celdas que empiezan por `=`, `+`, `-`, `@`): no se implementa todavía porque no hay ninguna vía de exportación/reapertura en Excel — se abordará en la fase de exportación (sección 15 de los requisitos), donde sí es un riesgo real.

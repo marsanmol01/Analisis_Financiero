@@ -6,39 +6,106 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { FormError } from "../../components/ui/form-error";
 import { Spinner } from "../../components/ui/spinner";
-import { useLogin } from "../../hooks/use-auth";
+import { useLogin, useVerifyTotpLogin } from "../../hooks/use-auth";
 import { ApiError } from "../../lib/api-client";
+
+type Step = "credentials" | "totp";
 
 export function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState<Step>("credentials");
   const login = useLogin();
+  const verifyTotpLogin = useVerifyTotpLogin();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = (location.state as { from?: string } | null)?.from ?? "/";
 
-  function handleSubmit(event: FormEvent) {
+  function handleCredentialsSubmit(event: FormEvent) {
     event.preventDefault();
     login.mutate(
       { email, password },
       {
-        onSuccess: () => navigate(from, { replace: true }),
+        onSuccess: (result) => {
+          if (result.status === "totp_required") {
+            setStep("totp");
+          } else {
+            navigate(from, { replace: true });
+          }
+        },
       },
     );
   }
 
-  const errorMessage =
+  function handleTotpSubmit(event: FormEvent) {
+    event.preventDefault();
+    verifyTotpLogin.mutate(code, { onSuccess: () => navigate(from, { replace: true }) });
+  }
+
+  function backToCredentials() {
+    setStep("credentials");
+    setCode("");
+    verifyTotpLogin.reset();
+  }
+
+  const credentialsError =
     login.error instanceof ApiError
-      ? (login.error.status === 403 ? login.error.message : "Email o contraseña incorrectos")
+      ? login.error.status === 403
+        ? login.error.message
+        : "Email o contraseña incorrectos"
       : login.error
         ? "No se pudo conectar con el servidor"
         : null;
 
+  const totpError =
+    verifyTotpLogin.error instanceof ApiError
+      ? verifyTotpLogin.error.status === 403
+        ? verifyTotpLogin.error.message
+        : "Código incorrecto"
+      : verifyTotpLogin.error
+        ? "No se pudo conectar con el servidor"
+        : null;
+
+  if (step === "totp") {
+    return (
+      <AuthLayout title="Verificación en dos pasos" subtitle="Introduce el código de tu aplicación de autenticación">
+        <form className="flex flex-col gap-4" onSubmit={handleTotpSubmit}>
+          <FormError message={totpError} />
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="totp-code">Código de 6 dígitos</Label>
+            <Input
+              id="totp-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              required
+              autoFocus
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            />
+          </div>
+          <Button type="submit" disabled={verifyTotpLogin.isPending || code.length !== 6} className="mt-2">
+            {verifyTotpLogin.isPending && <Spinner className="text-white" />}
+            Verificar
+          </Button>
+        </form>
+        <button
+          type="button"
+          onClick={backToCredentials}
+          className="mt-6 w-full text-center text-sm text-[var(--color-text-muted)] hover:underline"
+        >
+          Volver
+        </button>
+      </AuthLayout>
+    );
+  }
+
   return (
     <AuthLayout title="Iniciar sesión" subtitle="Accede a tus finanzas personales">
-      <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-        <FormError message={errorMessage} />
+      <form className="flex flex-col gap-4" onSubmit={handleCredentialsSubmit}>
+        <FormError message={credentialsError} />
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email">Email</Label>
           <Input

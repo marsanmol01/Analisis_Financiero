@@ -278,3 +278,15 @@ Con este bloque se completan las seis secciones planificadas al empezar el front
 - Sin menú de navegación para móvil (la barra lateral se oculta por completo en pantallas pequeñas).
 - Sin páginas de error 404/500 dedicadas.
 - El caso `PublicOnlyRoute` (redirigir a un usuario ya autenticado que visita `/login`) se verificó solo por simetría de código con `ProtectedRoute` en el bloque 1, nunca en vivo.
+
+## Añadido tras el cierre: verificación en dos pasos (2FA)
+
+Fuera de los seis bloques planificados: el backend ya traía preparados los campos `totp_secret_encrypted`/`totp_enabled` desde Fase 0 pero sin endpoints (ver `docs/security.md`). Se implementó el ciclo completo, backend y frontend a la vez.
+
+- **Login**: `LoginPage` ahora tiene dos pasos. Si `POST /auth/login` devuelve `{status: "totp_required"}` en vez de abrir sesión directamente, el mismo formulario cambia a pedir el código de 6 dígitos (`POST /auth/2fa/verify-login`) sin volver a pedir email/contraseña — la sesión ya sabe, del lado del servidor, qué usuario tiene la contraseña correcta pendiente de confirmar.
+- **Configuración** (`/settings`, antes "próximamente"): activar el 2FA abre un diálogo que pide el código QR al servidor al abrirse (`POST /auth/2fa/setup`, una petición real al montar el diálogo — no hay `GET` natural para "generar un secreto nuevo", así que un efecto disparando la mutación al abrir es el sitio correcto para ello) y lo confirma con un código; desactivarlo pide contraseña y código a la vez, reflejando la misma exigencia del backend.
+- Tipo `User` ampliado con `totpEnabled`, ya presente en cada respuesta de `/auth/me`, `/auth/login`, `/auth/register` y las mutaciones de 2FA — la UI nunca tiene que hacer una petición aparte para saber si el 2FA está activo.
+
+### Verificación
+
+El backend real de desarrollo del usuario (arrancado con `--watch` en su propia terminal) recompiló sin errores al guardar los cambios. La verificación de extremo a extremo del flujo completo (registro → login sin 2FA → activar con QR → login exigiendo el segundo factor → código incorrecto rechazado → código correcto → desactivar exigiendo contraseña y código por separado → vuelta al login directo) se hizo a nivel HTTP real, con cookies de sesión y cabecera CSRF igual que haría el navegador, en lugar de a través del navegador embebido: el puerto 5173 ya estaba ocupado por el servidor de desarrollo del propio usuario (confirmado por un `EADDRINUSE` al intentar arrancar uno propio), y usar ese proceso desde un navegador automatizado habría arriesgado cerrar o pisar la sesión real del usuario en su propio navegador. El usuario de prueba se creó y se borró de la base de datos al terminar.

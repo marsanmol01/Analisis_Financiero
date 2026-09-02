@@ -37,6 +37,8 @@ enum AuditEventType {
   RULE_UPDATED
   RULE_DELETED
   TRANSFER_STATUS_CHANGED
+  TOTP_ENABLED
+  TOTP_DISABLED
 }
 
 enum InternalTransferStatus {

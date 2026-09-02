@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../lib/api-client";
-import type { User } from "../types/auth";
+import type { LoginResult, User } from "../types/auth";
 
 export const AUTH_QUERY_KEY = ["auth", "me"] as const;
 
@@ -24,7 +24,21 @@ export function useCurrentUser() {
 export function useLogin() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { email: string; password: string }) => api.post<User>("/auth/login", input),
+    mutationFn: (input: { email: string; password: string }) => api.post<LoginResult>("/auth/login", input),
+    onSuccess: (result) => {
+      // Si pide segundo factor, la sesion todavia no esta autenticada (SessionAuthGuard la
+      // seguiria rechazando): no hay nada que guardar en la cache todavia.
+      if (result.status === "success") {
+        queryClient.setQueryData(AUTH_QUERY_KEY, result.user);
+      }
+    },
+  });
+}
+
+export function useVerifyTotpLogin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => api.post<User>("/auth/2fa/verify-login", { code }),
     onSuccess: (user) => {
       queryClient.setQueryData(AUTH_QUERY_KEY, user);
     },

@@ -16,7 +16,7 @@ import { RecurringPage } from "./pages/recurring/recurring-page";
 import { BudgetsPage } from "./pages/budgets/budgets-page";
 import { SavingsGoalsPage } from "./pages/savings-goals/savings-goals-page";
 import { AnalyticsPage } from "./pages/analytics/analytics-page";
-import { ComingSoonPage } from "./pages/coming-soon-page";
+import { SettingsPage } from "./pages/settings/settings-page";
 
 const router = createBrowserRouter([
   {
@@ -45,7 +45,7 @@ const router = createBrowserRouter([
           { path: "/imports", element: <ImportsPage /> },
           { path: "/imports/new", element: <NewImportPage /> },
           { path: "/analytics", element: <AnalyticsPage /> },
-          { path: "/settings", element: <ComingSoonPage title="Configuración" /> },
+          { path: "/settings", element: <SettingsPage /> },
         ],
       },
     ],
