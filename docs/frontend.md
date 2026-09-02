@@ -181,3 +181,36 @@ Probado en el navegador real, encadenando comercios, reglas e importación para 
 - Sin previsualización de "a qué movimientos afectaría esta regla" antes de guardarla (solo se ve el efecto después, vía reclasificar).
 - Sin reordenar reglas arrastrando (la prioridad se edita como número).
 - Sin fusionar comercios duplicados.
+
+## Bloque 5: Transferencias + Recurrentes
+
+### Alcance
+
+`/transfers` (detección de transferencias entre cuentas propias, revisión manual de pares dudosos) y `/recurring` (detección automática de patrones recurrentes, alta manual, edición, borrado). Ambos módulos comparten la misma forma: un algoritmo del backend propone candidatos sobre datos ya importados, y el usuario los confirma, corrige o crea a mano — no hay alta libre de una transferencia o un recurrente sin que exista ya movimiento real detrás.
+
+### Transferencias internas
+
+- "Detectar transferencias" llama a `POST /transfers/detect` (cuenta opcional, tolerancia en días configurable, por defecto los 3 días del backend) y muestra el resumen real devuelto (evaluados, pares encontrados, cuántos se confirmaron solos por alta confianza y cuántos quedan pendientes de revisar).
+- Cada fila expone solo las transiciones de estado que tienen sentido desde el estado actual (`PENDING`→ Confirmar/Rechazar; `CONFIRMED`→ Rechazar/Deshacer; `REJECTED`→ Confirmar/Deshacer), sobre `PATCH /transfers/:id`. Confirmar/deshacer una transferencia invalida `transactions` además de `transfers`: el backend marca o desmarca `isInternalTransfer` en ambos movimientos, y eso cambia si cuentan como ingreso/gasto real en el resto de la app.
+
+### Recurrentes
+
+- "Detectar automáticamente" (`POST /recurring/detect`) y la creación manual (`POST /recurring/manual`, eligiendo ≥2 movimientos de la misma cuenta y mismo signo en un diálogo) reutilizan el mismo detector de patrones del backend — la diferencia es que el manual no exige que el intervalo encaje en un periodo estándar (semanal/mensual/...), pero si no hay estándar exige 3 ocurrencias en vez de 2, y variación de importe/fecha limitada. El frontend no duplica esa lógica: dejar que el `FormError` del diálogo muestre el 400 tal cual si el patrón no cuela es más fiable que reimplementar la misma regla en dos sitios.
+- El picker de movimientos para la creación manual reutiliza `useTransactions` (ya existente desde el bloque 3), con un parámetro `enabled` nuevo en ese hook para no lanzar la petición hasta que se elige una cuenta — evita mandar una `pageSize: 0` inválida o una petición sin filtrar innecesaria.
+- Activar/desactivar un grupo es una insignia-botón directamente en la fila (sin diálogo, es un `PATCH` de un solo campo); editar la categoría sí abre un diálogo pequeño, porque es el único otro campo editable (`UpdateRecurringDto` solo cubre `categoryId` e `isActive`).
+- La columna "Origen" distingue Automático/Manual (`isManual`) para que quede claro qué grupos no debe tocar el detector automático (el backend nunca reasigna movimientos de un grupo manual).
+
+### Verificación
+
+Probado en el navegador real encadenando cuentas, importación, transferencias y recurrentes:
+
+- Dos cuentas ficticias con un traspaso de 200 € el mismo día en direcciones opuestas → "Detectar transferencias" lo emparejó con 100% de confianza y lo confirmó automáticamente; la insignia "Transferencia interna" apareció en ambos movimientos en `/transactions`.
+- Cambiado el estado a Rechazada → la insignia desapareció de los dos movimientos (confirma que `isInternalTransfer` se desmarca en ambos lados, no solo en el registro de la transferencia).
+- Dos cargos idénticos de Netflix con 29 días de diferencia → "Detectar automáticamente" creó un grupo mensual; editada su categoría y comprobado el toggle activo/inactivo en ambos sentidos.
+- Creación manual: primer intento con 2 movimientos de intervalo irregular (74 días) → el backend lo rechazó correctamente ("no muestran un patrón... suficientemente consistente"), verificando que el error real se propaga hasta el diálogo. Añadida una tercera ocurrencia con intervalo similar → la creación manual funcionó, con frecuencia "Otra" y origen "Manual" correctamente distinguido del automático. Grupo borrado después.
+
+### Fuera de alcance en el bloque 5
+
+- Sin mostrar la explicación de por qué una transferencia tiene baja confianza (el `%` se muestra, pero no el desglose del algoritmo).
+- El picker de movimientos para crear un grupo manual solo carga la primera página (100 movimientos) de la cuenta elegida; para cuentas con más histórico habría que añadir búsqueda o paginación ahí.
+- Sin gráfico de "coste mensual total de recurrentes" (ya calculado por movimiento vía `monthlyEquivalent`/`annualEstimate`, pero agregarlo es contenido del bloque 6, el dashboard completo).

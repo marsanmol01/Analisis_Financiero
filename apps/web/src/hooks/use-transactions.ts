@@ -7,13 +7,14 @@ import type {
   UpdateTransactionResult,
 } from "../types/transaction";
 
-export function useTransactions(filters: TransactionFilters) {
+export function useTransactions(filters: TransactionFilters, options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ["transactions", filters],
     queryFn: () => api.get<TransactionListResponse>("/transactions", filters as Record<string, QueryValue>),
     // Evita el parpadeo a "cargando" al cambiar de pagina o filtro: se sigue mostrando la
     // pagina anterior hasta que la nueva este lista.
     placeholderData: keepPreviousData,
+    enabled: options.enabled ?? true,
   });
 }
 

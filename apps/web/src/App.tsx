@@ -11,6 +11,8 @@ import { ImportsPage } from "./pages/imports/imports-page";
 import { NewImportPage } from "./pages/imports/new-import-page";
 import { MerchantsPage } from "./pages/merchants/merchants-page";
 import { ClassificationRulesPage } from "./pages/classification-rules/classification-rules-page";
+import { TransfersPage } from "./pages/transfers/transfers-page";
+import { RecurringPage } from "./pages/recurring/recurring-page";
 import { ComingSoonPage } from "./pages/coming-soon-page";
 
 const router = createBrowserRouter([
@@ -33,8 +35,8 @@ const router = createBrowserRouter([
           { path: "/categories", element: <CategoriesPage /> },
           { path: "/budgets", element: <ComingSoonPage title="Presupuestos" /> },
           { path: "/savings-goals", element: <ComingSoonPage title="Objetivos de ahorro" /> },
-          { path: "/recurring", element: <ComingSoonPage title="Gastos recurrentes" /> },
-          { path: "/transfers", element: <ComingSoonPage title="Transferencias internas" /> },
+          { path: "/recurring", element: <RecurringPage /> },
+          { path: "/transfers", element: <TransfersPage /> },
           { path: "/merchants", element: <MerchantsPage /> },
           { path: "/classification-rules", element: <ClassificationRulesPage /> },
           { path: "/imports", element: <ImportsPage /> },
