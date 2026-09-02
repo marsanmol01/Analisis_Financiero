@@ -214,3 +214,67 @@ Probado en el navegador real encadenando cuentas, importación, transferencias y
 - Sin mostrar la explicación de por qué una transferencia tiene baja confianza (el `%` se muestra, pero no el desglose del algoritmo).
 - El picker de movimientos para crear un grupo manual solo carga la primera página (100 movimientos) de la cuenta elegida; para cuentas con más histórico habría que añadir búsqueda o paginación ahí.
 - Sin gráfico de "coste mensual total de recurrentes" (ya calculado por movimiento vía `monthlyEquivalent`/`annualEstimate`, pero agregarlo es contenido del bloque 6, el dashboard completo).
+
+## Bloque 6: Dashboard completo + Estadísticas + Presupuestos + Objetivos
+
+### Alcance
+
+Último bloque del frontend: sustituye el dashboard mínimo del bloque 1 por el completo (`/`), y construye las tres secciones que quedaban como `ComingSoonPage`: `/analytics`, `/budgets` y `/savings-goals`. Es el bloque que consume la mayor parte de los endpoints de solo lectura del backend (`analytics/*`, `dashboard`) además del CRUD de presupuestos y objetivos.
+
+### Gráficos propios en vez de una librería
+
+El dashboard y Estadísticas necesitan tres visualizaciones: evolución mensual (barras), patrimonio en el tiempo (línea) y desglose por categoría/comercio (barras horizontales). En vez de añadir una librería de gráficos completa para tres visualizaciones sencillas, se construyeron tres componentes propios en `components/charts/`:
+
+- `monthly-bars.tsx`: barras de ingresos/gastos por mes con CSS puro (altura proporcional al máximo del periodo mostrado).
+- `bar-list.tsx`: lista de barras horizontales proporcionales, reutilizada tanto para gasto por categoría como por comercio.
+- `net-worth-sparkline.tsx`: una polyline SVG minimalista para la evolución del patrimonio.
+
+Ninguno depende de una librería externa; los tres son puramente presentacionales (reciben los datos ya calculados por el backend, no calculan nada).
+
+### Dashboard (`/`)
+
+Reemplaza la versión mínima del bloque 1. Secciones, todas alimentadas por la única llamada a `GET /dashboard` (que el backend ya componía desde el bloque de Fase 2, agregando analytics + presupuestos + objetivos + recurrentes en una sola respuesta):
+
+- Alertas (`alerts`): banner por severidad (`info`/`warning`/`critical`) para presupuestos cerca del límite, objetivos retrasados y pagos recurrentes próximos — ya calculadas por el backend, el frontend solo las pinta.
+- Tarjetas de resumen con comparación porcentual contra el mes anterior (ingresos/gastos), coloreando "menos gasto" como positivo y "menos ingreso" como negativo (parámetro `invertChangeTone` en `SummaryCard`).
+- "Dinero realmente disponible": saldo líquido menos pagos recurrentes pendientes menos aportación mensual necesaria a objetivos activos — el mismo cálculo que ya hacía `dashboard-math.ts` en el backend desde Fase 2, aquí solo se visualiza.
+- Evolución mensual y patrimonio (los dos gráficos), gasto por categoría y mayores gastos del mes, y miniaturas de presupuestos/objetivos con enlace "Ver todos" a su página completa.
+
+### Estadísticas (`/analytics`)
+
+Vista de exploración libre sobre los mismos datos, con filtros propios: cuenta, mes del resumen (`GET /analytics/summary`), y un rango de fechas independiente para los desgloses (`by-category`, `by-merchant`, `top-expenses`) — el backend no comparte el rango entre esas rutas y el resumen (el resumen es siempre por mes de calendario; los desgloses son por rango libre), así que el frontend tampoco lo comparte. Sin rango explícito, `by-category`/`by-merchant`/`top-expenses` usan el valor por defecto del backend (desde el día 1 del mes hasta **hoy**, no hasta fin de mes) — verificado explícitamente durante las pruebas, ver más abajo.
+
+### Presupuestos (`/budgets`)
+
+- Alta: categoría (o "General") + importe; **la categoría no se puede cambiar después** (`UpdateBudgetDto` solo acepta `amount` e `isActive`), así que el diálogo de edición la muestra como texto fijo en vez de un selector.
+- El progreso (`GET /budgets/progress?month=...`) es una consulta aparte de la lista (`GET /budgets`, que trae todos los presupuestos incluidos los inactivos): se cruzan por `id` en el cliente. Un presupuesto inactivo no tiene entrada en `progress`, así que la tarjeta lo señala explícitamente en vez de mostrar una barra vacía o engañosa.
+- El color de la barra seguido el mismo criterio que las alertas del backend: `alertLevel 100` → rojo (superado), `>= 90` → ámbar, si no → color de marca.
+
+### Objetivos de ahorro (`/savings-goals`)
+
+- El formulario tiene dos modos según si `accountId` está vinculado: **automático** (el progreso es el saldo de la cuenta elegida, `currentAmount` no se puede tocar) o **manual** (el usuario actualiza `currentAmount` a mano). Cambiar de una cuenta a "Manual" en edición revela el campo de importe ahorrado; el backend rechaza con 400 si se manda `currentAmount` estando vinculado a una cuenta, así que el campo ni se muestra en ese caso.
+- Los indicadores de progreso (`savedSoFar`, `progressPercent`, `monthlyContributionNeeded`, `isOnTrack`, `deviation`...) vienen ya calculados por `savings-goal-math.ts` en el backend; el frontend no reimplementa ninguno de esos cálculos.
+
+### Verificación
+
+Probado en el navegador real con una cuenta con saldo inicial y ocho movimientos ficticios repartidos en agosto y septiembre (nómina, supermercado, alquiler, restaurante, gasolinera):
+
+- Dashboard con datos reales: patrimonio, ingresos/gastos del mes con el porcentaje correcto respecto al mes anterior (verificados a mano: 2500 vs. 2400 → 4.2%; 955 vs. 840 → 13.7%), tasa de ahorro 61.8%, "disponible por día" recalculado correctamente tras crear objetivos de ahorro.
+- **Hallazgo esperado, no un bug**: al fechar movimientos de prueba después de "hoy" (el reloj del sistema marca 2026-09-02, y algunos movimientos ficticios llevaban fecha 5/7/10 de septiembre), el desglose por categoría y "mayores gastos" del dashboard los excluyó — correcto, porque `by-category`/`top-expenses` usan por defecto "desde el día 1 del mes hasta hoy", no el mes completo (a diferencia del resumen, que sí es el mes de calendario completo). Confirmado fijando explícitamente el rango en Estadísticas (`Desglose desde/hasta` = todo septiembre): los mismos gastos aparecieron correctamente desglosados por categoría, ordenados de mayor a menor.
+- Presupuestos: uno general (1000 €, 95.5% consumido) y uno por categoría (Vivienda, 650 €, superado en 50 € con el aviso correcto); alerta correspondiente aparece en el dashboard ("Presupuesto de general: 95.5% consumido"); desactivar oculta el progreso con el mensaje explicativo; borrado.
+- Objetivos de ahorro: uno manual (aportación inicial 1000 €, editado el importe ahorrado a 2500 € → 30% de progreso correcto) y uno vinculado a la cuenta (progreso automático = saldo de la cuenta, 66.7% correcto sin introducir nada a mano); ambos alimentaron correctamente "Aportación a objetivos" en el dashboard (592,98 € + 112,05 € = 705,03 €, verificado); borrado.
+
+### Fuera de alcance en el bloque 6
+
+- Sin exportar ningún informe (PDF/Excel) de Estadísticas.
+- Sin editable inline de los importes de "Mayores gastos" desde el dashboard (hay que ir a Transacciones).
+- El sparkline de patrimonio no tiene tooltip por punto, solo el primer y último valor con etiqueta.
+
+## Frontend: cierre de los seis bloques
+
+Con este bloque se completan las seis secciones planificadas al empezar el frontend (Fase 0). Deuda técnica conocida, transversal a varios bloques, para revisar si hace falta más adelante:
+
+- El bundle de producción ronda ~875 kB sin comprimir (~240 kB gzip) en un único chunk; sin code-splitting todavía. Vale la pena revisarlo si la app sigue creciendo.
+- Sin menú de navegación para móvil (la barra lateral se oculta por completo en pantallas pequeñas).
+- Sin páginas de error 404/500 dedicadas.
+- El caso `PublicOnlyRoute` (redirigir a un usuario ya autenticado que visita `/login`) se verificó solo por simetría de código con `ProtectedRoute` en el bloque 1, nunca en vivo.

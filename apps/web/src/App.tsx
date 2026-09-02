@@ -13,6 +13,9 @@ import { MerchantsPage } from "./pages/merchants/merchants-page";
 import { ClassificationRulesPage } from "./pages/classification-rules/classification-rules-page";
 import { TransfersPage } from "./pages/transfers/transfers-page";
 import { RecurringPage } from "./pages/recurring/recurring-page";
+import { BudgetsPage } from "./pages/budgets/budgets-page";
+import { SavingsGoalsPage } from "./pages/savings-goals/savings-goals-page";
+import { AnalyticsPage } from "./pages/analytics/analytics-page";
 import { ComingSoonPage } from "./pages/coming-soon-page";
 
 const router = createBrowserRouter([
@@ -33,15 +36,15 @@ const router = createBrowserRouter([
           { path: "/transactions", element: <TransactionsPage /> },
           { path: "/accounts", element: <AccountsPage /> },
           { path: "/categories", element: <CategoriesPage /> },
-          { path: "/budgets", element: <ComingSoonPage title="Presupuestos" /> },
-          { path: "/savings-goals", element: <ComingSoonPage title="Objetivos de ahorro" /> },
+          { path: "/budgets", element: <BudgetsPage /> },
+          { path: "/savings-goals", element: <SavingsGoalsPage /> },
           { path: "/recurring", element: <RecurringPage /> },
           { path: "/transfers", element: <TransfersPage /> },
           { path: "/merchants", element: <MerchantsPage /> },
           { path: "/classification-rules", element: <ClassificationRulesPage /> },
           { path: "/imports", element: <ImportsPage /> },
           { path: "/imports/new", element: <NewImportPage /> },
-          { path: "/analytics", element: <ComingSoonPage title="Estadísticas" /> },
+          { path: "/analytics", element: <AnalyticsPage /> },
           { path: "/settings", element: <ComingSoonPage title="Configuración" /> },
         ],
       },

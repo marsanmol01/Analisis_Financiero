@@ -1,13 +1,33 @@
-// Tipado minimo: solo los campos que se usan ya. Se completara cuando se construya el
-// dashboard real (ultimo bloque del frontend), reflejando DashboardService del backend.
-export interface DashboardSummary {
-  income: number;
-  expenses: number;
-  savings: number;
-  savingsRate: number | null;
+import type { CategoryBreakdownItem, MonthlyAmounts, NetWorthEvolutionPoint, NetWorthResult, SummaryResult } from "./analytics";
+import type { BudgetProgress } from "./budget";
+import type { RecurringGroup } from "./recurring";
+import type { SavingsGoal } from "./savings-goal";
+import type { Transaction } from "./transaction";
+
+export interface DashboardAlert {
+  type: "budget" | "savings_goal" | "recurring_due";
+  severity: "info" | "warning" | "critical";
+  message: string;
+}
+
+export interface AvailableMoney {
+  liquidBalance: number;
+  pendingRecurringPayments: number;
+  savingsGoalsMonthlyNeeded: number;
+  availableMoney: number;
+  dailyBudget: number | null;
 }
 
 export interface DashboardResponse {
-  summary: DashboardSummary;
-  netWorth: { netWorth: number };
+  summary: SummaryResult;
+  netWorth: NetWorthResult;
+  netWorthEvolution: NetWorthEvolutionPoint[];
+  monthlyEvolution: MonthlyAmounts[];
+  byCategory: CategoryBreakdownItem[];
+  topExpenses: Transaction[];
+  budgetsProgress: BudgetProgress[];
+  savingsGoals: SavingsGoal[];
+  recurringGroups: RecurringGroup[];
+  availableMoney: AvailableMoney;
+  alerts: DashboardAlert[];
 }
