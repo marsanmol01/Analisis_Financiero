@@ -5,6 +5,7 @@ import { AccountsService } from "../accounts/accounts.service";
 import { ClassificationService } from "../classification/classification.service";
 import { GenericCsvImporter } from "./importers/generic-csv.importer";
 import { GenericXlsxImporter } from "./importers/generic-xlsx.importer";
+import { LegacyXlsImporter } from "./importers/legacy-xls.importer";
 import { BankImporter } from "./importers/bank-importer.interface";
 import { ColumnMapping, detectColumnMapping } from "./column-mapping";
 import { normalizeRow } from "./row-normalizer";
@@ -37,7 +38,10 @@ export class ImportsService {
     if (name.endsWith(".xlsx") || file.mimetype.includes("spreadsheetml")) {
       return new GenericXlsxImporter();
     }
-    throw new BadRequestException("Formato de fichero no soportado. Usa CSV o XLSX.");
+    if (name.endsWith(".xls") || file.mimetype === "application/vnd.ms-excel") {
+      return new LegacyXlsImporter();
+    }
+    throw new BadRequestException("Formato de fichero no soportado. Usa CSV, XLS o XLSX.");
   }
 
   private parseColumnMappingOverride(raw?: string): ColumnMapping | undefined {

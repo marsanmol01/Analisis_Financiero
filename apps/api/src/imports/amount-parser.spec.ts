@@ -42,4 +42,11 @@ describe("parseAmount", () => {
   it("trata 1,234 (sin decimales, 3 digitos tras coma) como miles", () => {
     expect(parseAmount("1,234")).toBeCloseTo(1234);
   });
+
+  it("ignora un codigo de moneda ISO 4217 pegado al numero", () => {
+    expect(parseAmount("-20,99EUR")).toBeCloseTo(-20.99);
+    expect(parseAmount("20,99EUR")).toBeCloseTo(20.99);
+    expect(parseAmount("EUR20.99")).toBeCloseTo(20.99);
+    expect(parseAmount("USD1,234.56")).toBeCloseTo(1234.56);
+  });
 });

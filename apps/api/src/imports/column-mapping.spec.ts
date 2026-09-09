@@ -28,4 +28,9 @@ describe("detectColumnMapping", () => {
   it("devuelve null si no hay ninguna columna reconocible", () => {
     expect(detectColumnMapping(["Columna A", "Columna B", "Columna C"])).toBeNull();
   });
+
+  it("detecta la cabecera real de los extractos de Sabadell (F. Operativa / F. Valor)", () => {
+    const mapping = detectColumnMapping(["F. Operativa", "Concepto", "F. Valor", "Importe", "Saldo"]);
+    expect(mapping).toMatchObject({ date: 0, description: 1, valueDate: 2, amount: 3 });
+  });
 });

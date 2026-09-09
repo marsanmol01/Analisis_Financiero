@@ -138,11 +138,11 @@ export function NewImportPage() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="import-file">Fichero (CSV o XLSX, máx. 15 MB)</Label>
+                <Label htmlFor="import-file">Fichero (CSV, XLS o XLSX, máx. 15 MB)</Label>
                 <Input
                   id="import-file"
                   type="file"
-                  accept=".csv,.xlsx"
+                  accept=".csv,.xls,.xlsx"
                   onChange={(e) => setFile(e.target.files?.[0])}
                   required
                 />

@@ -5,10 +5,19 @@
 ```
 BankImporter (interfaz: parse(buffer) -> { headers, rows })
 ├── GenericCsvImporter   (csv-parse, detecta delimitador , ; \t, quita BOM)
-└── GenericXlsxImporter  (exceljs)
+├── GenericXlsxImporter  (exceljs — XLSX moderno, formato OOXML/ZIP)
+└── LegacyXlsImporter    (xlsx/SheetJS — XLS legacy Excel 97-2003, formato OLE2/BIFF)
 ```
 
 Añadir un importador específico de un banco (`BancoXImporter`, `RevolutImporter`...) más adelante consiste en implementar `BankImporter` y registrarlo en `ImportsService.resolveImporter()` — no requiere tocar el resto del pipeline.
+
+### XLS legacy (Excel 97-2003)
+
+`exceljs` (usado por `GenericXlsxImporter`) solo sabe leer el formato OOXML moderno (`.xlsx`); un `.xls` binario antiguo, como los que exporta Sabadell, le es completamente opaco. `LegacyXlsImporter` usa la librería `xlsx` (SheetJS) para leerlos, enrutado por extensión/mimetype en `resolveImporter()` (`.xls` / `application/vnd.ms-excel`).
+
+Algunos extractos (de nuevo, el caso real de Sabadell) anteponen un bloque de metadatos (título, fecha de generación, IBAN, titular...) antes de la fila de cabecera real de la tabla. `LegacyXlsImporter` escanea como máximo las primeras 30 filas no vacías buscando la primera que `detectColumnMapping()` reconozca como cabecera válida, y descarta todo lo anterior. Si ninguna fila es reconocible, cae al mismo comportamiento que el resto de importadores (asume la primera fila como cabecera y delega en el mapeo manual del usuario).
+
+**Nota de dependencia**: la versión de `xlsx` publicada en el registro de npm (`0.18.5`) tiene dos CVEs "high" sin parche disponible en npm (prototype pollution y ReDoS). SheetJS solo publica versiones parcheadas en su propio CDN (`cdn.sheetjs.com`), no en npm, por un conflicto de distribución ajeno a este proyecto. Por eso `package.json` fija la dependencia directamente a `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` (canal de distribución oficial del propio mantenedor) en vez de a una versión de npm — con esa versión, `npm audit` no reporta ninguna vulnerabilidad para `xlsx`.
 
 ## Flujo: preview → confirm (sin estado intermedio en servidor)
 
@@ -21,7 +30,7 @@ Los campos `status`, `reason` y `fingerprint` que trae cada fila del preview se 
 
 ## Detección de columnas
 
-`detectColumnMapping()` reconoce alias en español/inglés (`fecha`/`date`, `concepto`/`description`, `importe`/`amount`, `debe`/`haber` o `debit`/`credit`, `referencia`, `moneda`). Si no puede identificar con confianza fecha + descripción + (importe o debe/haber), el preview devuelve `{ status: "needs_mapping", headers }` en vez de adivinar — el cliente debe reenviar con un `columnMapping` explícito.
+`detectColumnMapping()` reconoce alias en español/inglés (`fecha`/`date`, `concepto`/`description`, `importe`/`amount`, `debe`/`haber` o `debit`/`credit`, `referencia`, `moneda`), incluyendo los nombres reales de columna de Sabadell (`f. operativa` → fecha, `f. valor` → fecha valor). Si no puede identificar con confianza fecha + descripción + (importe o debe/haber), el preview devuelve `{ status: "needs_mapping", headers }` en vez de adivinar — el cliente debe reenviar con un `columnMapping` explícito. Esto es lo esperado, por ejemplo, con el extracto de Revolut (columna `Fecha de inicio`, sin alias reconocido todavía) — se resuelve mapeando manualmente una vez, no requiere cambio de código.
 
 ## Huella (fingerprint) y duplicados
 
@@ -31,7 +40,7 @@ Los campos `status`, `reason` y `fingerprint` que trae cada fila del preview se 
 
 ## Calidad de datos
 
-- **Importes**: admite coma o punto decimal, miles, signo delante o formato contable con paréntesis, símbolo de moneda. Ante ambigüedad real (p. ej. texto no numérico) devuelve `null` → la fila se marca `error`, nunca se asume un valor.
+- **Importes**: admite coma o punto decimal, miles, signo delante o formato contable con paréntesis, símbolo de moneda, y un código de moneda ISO 4217 pegado directamente al número sin espacio (p. ej. `-20,99EUR`, formato real visto en el extracto de CaixaBank). Ante ambigüedad real (p. ej. texto no numérico) devuelve `null` → la fila se marca `error`, nunca se asume un valor.
 - **Fechas**: `YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY`, `DD.MM.YYYY`, `YYYY/MM/DD`, en modo estricto (rechaza `32/13/2026`). Se ancla a medianoche UTC del día detectado para no desplazar el día por la zona horaria del servidor.
 - **Filas vacías**: se ignoran sin contar como error. Una fila con contenido pero campos clave vacíos/ilegibles sí se marca como `error` y aparece en el preview — nunca se descarta en silencio.
 - **Límite de tamaño**: 15 MB por fichero (multer) y 20.000 filas por importación, para evitar agotamiento de memoria con un fichero enorme o malicioso.

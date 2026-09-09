@@ -14,8 +14,8 @@ export interface ColumnMapping {
 }
 
 const ALIASES: Record<keyof ColumnMapping, string[]> = {
-  date: ["fecha", "fecha operacion", "date", "transaction date", "fecha op"],
-  valueDate: ["fecha valor", "value date"],
+  date: ["fecha", "fecha operacion", "date", "transaction date", "fecha op", "f. operativa", "f operativa"],
+  valueDate: ["fecha valor", "value date", "f. valor", "f valor"],
   amount: ["importe", "amount", "cantidad", "importe eur", "importe (eur)"],
   debit: ["debe", "cargo", "debit"],
   credit: ["haber", "abono", "credit"],

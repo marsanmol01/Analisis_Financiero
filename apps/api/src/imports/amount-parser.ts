@@ -1,5 +1,6 @@
 // Parseo tolerante de importes bancarios: admite coma o punto decimal, separador de miles,
-// signo negativo delante o parentesis (formato contable), y simbolos de moneda/espacios.
+// signo negativo delante o parentesis (formato contable), simbolos de moneda/espacios, y un
+// codigo de moneda ISO 4217 pegado al numero (p.ej. "-20,99EUR").
 // Devuelve null (nunca lanza) cuando el valor es ambiguo o no numerico, para que la fila se
 // marque como error visible en vez de asumir un importe incorrecto en silencio.
 export function parseAmount(raw: string): number | null {
@@ -13,6 +14,11 @@ export function parseAmount(raw: string): number | null {
   }
 
   text = text.replace(/[€$\s]/g, "");
+  if (text === "") return null;
+
+  // Codigo de moneda ISO 4217 (3 letras, p.ej. "EUR") pegado directamente al numero, sin espacio
+  // ni simbolo de por medio (formato real visto en extractos de CaixaBank).
+  text = text.replace(/^[a-zA-Z]{3}(?=[\d.,+-])/, "").replace(/(?<=[\d.,])[a-zA-Z]{3}$/, "");
   if (text === "") return null;
 
   if (text.startsWith("-")) {
