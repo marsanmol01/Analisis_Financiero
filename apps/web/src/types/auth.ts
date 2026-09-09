@@ -5,3 +5,8 @@ export interface User {
 }
 
 export type LoginResult = { status: "success"; user: User } | { status: "totp_required" };
+
+export interface VerifyTotpLoginResult {
+  user: User;
+  recoveryCodeWarning?: string;
+}

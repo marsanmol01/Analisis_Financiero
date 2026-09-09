@@ -7,6 +7,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { EncryptionService } from "../crypto/encryption.service";
 import { RegisterDto } from "./dto/register.dto";
 import { buildOtpAuthUrl, generateTotpSecret, verifyTotpCode } from "./totp";
+import { generateRecoveryCodes, hashRecoveryCode, verifyRecoveryCodeHash } from "./recovery-codes";
 
 export interface SafeUser {
   id: string;
@@ -20,11 +21,21 @@ export interface TotpSetupResult {
   qrCodeDataUrl: string;
 }
 
+export interface EnableTotpResult {
+  user: SafeUser;
+  recoveryCodes: string[];
+}
+
 export type LoginOutcome =
-  | { status: "success"; user: SafeUser }
+  | { status: "success"; user: SafeUser; recoveryCodeWarning?: string }
   | { status: "totp_required"; userId: string }
   | { status: "invalid_credentials" }
   | { status: "locked"; lockedUntil: Date };
+
+interface SecondFactorResult {
+  valid: boolean;
+  usedRecoveryCode: boolean;
+}
 
 @Injectable()
 export class AuthService {
@@ -44,9 +55,9 @@ export class AuthService {
     return { id: user.id, email: user.email, totpEnabled: user.totpEnabled };
   }
 
-  // Compartido entre el fallo de contraseña y el fallo de codigo TOTP: para el contador de
-  // fuerza bruta, "esta contraseña era incorrecta" y "este codigo era incorrecto" cuentan igual
-  // — ambos son un intento de login fallido sobre la misma cuenta.
+  // Compartido entre el fallo de contraseña y el fallo de codigo TOTP/recuperacion: para el
+  // contador de fuerza bruta, "esta contraseña era incorrecta" y "este codigo era incorrecto"
+  // cuentan igual — ambos son un intento de login fallido sobre la misma cuenta.
   private async registerFailedAttempt(user: User): Promise<LoginOutcome> {
     const failedLoginCount = user.failedLoginCount + 1;
     const shouldLock = failedLoginCount >= this.maxFailedAttempts;
@@ -63,8 +74,8 @@ export class AuthService {
     return { status: "invalid_credentials" };
   }
 
-  // Solo se limpia el contador cuando el login se completa de verdad (con TOTP si aplica): no
-  // basta con acertar la contraseña si a continuacion se falla el segundo factor repetidamente.
+  // Solo se limpia el contador cuando el login se completa de verdad (con el segundo factor si
+  // aplica): no basta con acertar la contraseña si a continuacion se falla el codigo repetidamente.
   private async clearFailedAttempts(user: User): Promise<void> {
     if (user.failedLoginCount > 0 || user.lockedUntil) {
       await this.prisma.user.update({
@@ -72,6 +83,42 @@ export class AuthService {
         data: { failedLoginCount: 0, lockedUntil: null },
       });
     }
+  }
+
+  // Un codigo de 6 digitos se verifica como TOTP; cualquier otra cosa se intenta como codigo de
+  // recuperacion (de un solo uso: se marca gastado en el momento en que coincide). No se
+  // intentan ambos caminos para el mismo valor: el formato ya distingue cual toca.
+  private async verifySecondFactor(user: User, code: string): Promise<SecondFactorResult> {
+    const trimmed = code.trim();
+    const looksLikeTotp = /^\d{6}$/.test(trimmed);
+
+    if (looksLikeTotp) {
+      if (!user.totpSecretEncrypted) return { valid: false, usedRecoveryCode: false };
+      const secret = this.encryption.decrypt(user.totpSecretEncrypted);
+      const valid = await verifyTotpCode(secret, trimmed);
+      return { valid, usedRecoveryCode: false };
+    }
+
+    const unused = await this.prisma.recoveryCode.findMany({ where: { userId: user.id, usedAt: null } });
+    for (const recovery of unused) {
+      if (await verifyRecoveryCodeHash(recovery.codeHash, code)) {
+        await this.prisma.recoveryCode.update({ where: { id: recovery.id }, data: { usedAt: new Date() } });
+        return { valid: true, usedRecoveryCode: true };
+      }
+    }
+    return { valid: false, usedRecoveryCode: false };
+  }
+
+  private async issueRecoveryCodes(userId: string): Promise<string[]> {
+    // Un lote sustituye por completo al anterior: los codigos viejos (usados o no) dejan de
+    // servir en cuanto se genera uno nuevo, para que el usuario no tenga dos listas validas a
+    // la vez sin saberlo.
+    await this.prisma.recoveryCode.deleteMany({ where: { userId } });
+    const codes = generateRecoveryCodes();
+    await this.prisma.recoveryCode.createMany({
+      data: await Promise.all(codes.map(async (code) => ({ userId, codeHash: await hashRecoveryCode(code) }))),
+    });
+    return codes;
   }
 
   async register(dto: RegisterDto): Promise<SafeUser> {
@@ -127,13 +174,21 @@ export class AuthService {
       return { status: "locked", lockedUntil: user.lockedUntil };
     }
 
-    const secret = this.encryption.decrypt(user.totpSecretEncrypted);
-    const valid = await verifyTotpCode(secret, code);
+    const { valid, usedRecoveryCode } = await this.verifySecondFactor(user, code);
     if (!valid) {
       return this.registerFailedAttempt(user);
     }
 
     await this.clearFailedAttempts(user);
+
+    if (usedRecoveryCode) {
+      const remaining = await this.prisma.recoveryCode.count({ where: { userId: user.id, usedAt: null } });
+      return {
+        status: "success",
+        user: this.toSafeUser(user),
+        recoveryCodeWarning: `Has iniciado sesión con un código de recuperación de un solo uso. Te queda${remaining === 1 ? "" : "n"} ${remaining} código${remaining === 1 ? "" : "s"} sin usar.`,
+      };
+    }
     return { status: "success", user: this.toSafeUser(user) };
   }
 
@@ -154,7 +209,10 @@ export class AuthService {
     return { secret, otpauthUrl, qrCodeDataUrl };
   }
 
-  async enableTotp(userId: string, code: string): Promise<SafeUser> {
+  // Al confirmar el setup solo tiene sentido un codigo TOTP real (todavia no existe ningun
+  // codigo de recuperacion emitido en este punto), asi que se verifica directo, sin pasar por
+  // verifySecondFactor. Al activarse con exito se emite el primer lote de codigos de recuperacion.
+  async enableTotp(userId: string, code: string): Promise<EnableTotpResult> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (!user.totpSecretEncrypted) {
       throw new BadRequestException("Primero debes iniciar la configuración de la verificación en dos pasos");
@@ -167,9 +225,12 @@ export class AuthService {
     }
 
     const updated = await this.prisma.user.update({ where: { id: userId }, data: { totpEnabled: true } });
-    return this.toSafeUser(updated);
+    const recoveryCodes = await this.issueRecoveryCodes(userId);
+    return { user: this.toSafeUser(updated), recoveryCodes };
   }
 
+  // Admite un codigo TOTP o uno de recuperacion: si se ha perdido el dispositivo, un codigo de
+  // recuperacion debe bastar tambien para desactivar el 2FA (con la contraseña, igualmente).
   async disableTotp(userId: string, password: string, code: string): Promise<SafeUser> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
 
@@ -181,8 +242,7 @@ export class AuthService {
       throw new BadRequestException("La verificación en dos pasos no está activada");
     }
 
-    const secret = this.encryption.decrypt(user.totpSecretEncrypted);
-    const valid = await verifyTotpCode(secret, code);
+    const { valid } = await this.verifySecondFactor(user, code);
     if (!valid) {
       throw new UnauthorizedException("Código incorrecto");
     }
@@ -191,7 +251,27 @@ export class AuthService {
       where: { id: userId },
       data: { totpEnabled: false, totpSecretEncrypted: null },
     });
+    // Sin 2FA activo, los codigos de recuperacion no tienen nada que respaldar: se descartan.
+    await this.prisma.recoveryCode.deleteMany({ where: { userId } });
     return this.toSafeUser(updated);
+  }
+
+  async regenerateRecoveryCodes(userId: string, password: string): Promise<string[]> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+
+    const passwordValid = await argon2.verify(user.passwordHash, password);
+    if (!passwordValid) {
+      throw new UnauthorizedException("Contraseña incorrecta");
+    }
+    if (!user.totpEnabled) {
+      throw new BadRequestException("La verificación en dos pasos no está activada");
+    }
+
+    return this.issueRecoveryCodes(userId);
+  }
+
+  async countRemainingRecoveryCodes(userId: string): Promise<number> {
+    return this.prisma.recoveryCode.count({ where: { userId, usedAt: null } });
   }
 
   async findSafeUserById(id: string): Promise<SafeUser | null> {

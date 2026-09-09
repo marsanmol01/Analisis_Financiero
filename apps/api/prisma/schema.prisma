@@ -39,6 +39,8 @@ enum AuditEventType {
   TRANSFER_STATUS_CHANGED
   TOTP_ENABLED
   TOTP_DISABLED
+  RECOVERY_CODES_GENERATED
+  RECOVERY_CODE_USED
 }
 
 enum InternalTransferStatus {
@@ -96,8 +98,25 @@ model User {
   budgets             Budget[]
   savingsGoals        SavingsGoal[]
   balanceSnapshots    BalanceSnapshot[]
+  recoveryCodes       RecoveryCode[]
 
   @@map("users")
+}
+
+// Codigos de recuperacion del 2FA: un lote se genera al activar el 2FA (y se puede regenerar
+// despues) para poder entrar si se pierde el dispositivo con la app de autenticacion. De un
+// solo uso cada uno; se guardan hasheados igual que una contraseña, nunca en claro.
+model RecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("recovery_codes")
 }
 
 model Account {

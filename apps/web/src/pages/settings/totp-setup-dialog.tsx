@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -7,11 +7,14 @@ import { FormError } from "../../components/ui/form-error";
 import { Spinner } from "../../components/ui/spinner";
 import { useEnableTotp, useSetupTotp } from "../../hooks/use-totp";
 import { ApiError } from "../../lib/api-client";
+import { RecoveryCodesList } from "./recovery-codes-list";
 
 export function TotpSetupDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>{open && <TotpSetupForm onOpenChange={onOpenChange} />}</DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        {open && <TotpSetupForm onOpenChange={onOpenChange} />}
+      </DialogContent>
     </Dialog>
   );
 }
@@ -20,6 +23,7 @@ function TotpSetupForm({ onOpenChange }: { onOpenChange: (open: boolean) => void
   const setupTotp = useSetupTotp();
   const enableTotp = useEnableTotp();
   const [code, setCode] = useState("");
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
 
   // Peticion al servidor (genera y guarda un secreto nuevo) al abrir el dialogo: es una
   // sincronizacion con un sistema externo, el caso legitimo para un efecto — no un setState
@@ -31,7 +35,7 @@ function TotpSetupForm({ onOpenChange }: { onOpenChange: (open: boolean) => void
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    enableTotp.mutate(code, { onSuccess: () => onOpenChange(false) });
+    enableTotp.mutate(code, { onSuccess: (result) => setRecoveryCodes(result.recoveryCodes) });
   }
 
   const errorMessage =
@@ -42,6 +46,24 @@ function TotpSetupForm({ onOpenChange }: { onOpenChange: (open: boolean) => void
         : setupTotp.error || enableTotp.error
           ? "No se pudo conectar con el servidor"
           : null;
+
+  if (recoveryCodes) {
+    return (
+      <>
+        <DialogHeader>
+          <DialogTitle>Guarda tus códigos de recuperación</DialogTitle>
+          <DialogDescription>
+            Úsalos si pierdes el acceso a tu aplicación de autenticación. Cada uno sirve una sola vez y no volverán a
+            mostrarse.
+          </DialogDescription>
+        </DialogHeader>
+        <RecoveryCodesList codes={recoveryCodes} />
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)}>Ya los he guardado</Button>
+        </DialogFooter>
+      </>
+    );
+  }
 
   return (
     <>

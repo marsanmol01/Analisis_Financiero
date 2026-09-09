@@ -38,7 +38,8 @@ function TotpDisableForm({ onOpenChange }: { onOpenChange: (open: boolean) => vo
       <DialogHeader>
         <DialogTitle>Desactivar verificación en dos pasos</DialogTitle>
         <DialogDescription>
-          Por seguridad, confirma tu contraseña y un código actual de tu aplicación de autenticación.
+          Por seguridad, confirma tu contraseña y un código actual de tu aplicación de autenticación (o uno de
+          recuperación, si has perdido el acceso a ella).
         </DialogDescription>
       </DialogHeader>
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
@@ -57,15 +58,14 @@ function TotpDisableForm({ onOpenChange }: { onOpenChange: (open: boolean) => vo
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="disable-totp-code">Código de 6 dígitos</Label>
+          <Label htmlFor="disable-totp-code">Código de la app, o de recuperación</Label>
           <Input
             id="disable-totp-code"
-            inputMode="numeric"
             autoComplete="one-time-code"
-            maxLength={6}
+            maxLength={11}
             required
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(e) => setCode(e.target.value.slice(0, 11))}
           />
         </div>
 
@@ -73,7 +73,7 @@ function TotpDisableForm({ onOpenChange }: { onOpenChange: (open: boolean) => vo
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button type="submit" variant="destructive" disabled={disableTotp.isPending || code.length !== 6 || !password}>
+          <Button type="submit" variant="destructive" disabled={disableTotp.isPending || !code || !password}>
             {disableTotp.isPending && <Spinner className="text-white" />}
             Desactivar
           </Button>

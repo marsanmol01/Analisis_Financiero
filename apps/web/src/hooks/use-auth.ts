@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../lib/api-client";
-import type { LoginResult, User } from "../types/auth";
+import type { LoginResult, User, VerifyTotpLoginResult } from "../types/auth";
 
 export const AUTH_QUERY_KEY = ["auth", "me"] as const;
 
@@ -38,9 +38,9 @@ export function useLogin() {
 export function useVerifyTotpLogin() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (code: string) => api.post<User>("/auth/2fa/verify-login", { code }),
-    onSuccess: (user) => {
-      queryClient.setQueryData(AUTH_QUERY_KEY, user);
+    mutationFn: (code: string) => api.post<VerifyTotpLoginResult>("/auth/2fa/verify-login", { code }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(AUTH_QUERY_KEY, result.user);
     },
   });
 }

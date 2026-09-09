@@ -1,7 +1,8 @@
 // Test de integracion real (no mockeado) contra la base de datos de desarrollo/test.
 // Cubre el ciclo de vida completo del segundo factor: activarlo (con y sin el codigo
-// correcto), el login en dos pasos que pasa a exigir a partir de ahi, el contador de fuerza
-// bruta compartido con la contraseña, y la desactivacion (que exige contraseña Y codigo).
+// correcto, emitiendo codigos de recuperacion), el login en dos pasos que pasa a exigir a
+// partir de ahi (con codigo TOTP o de recuperacion), el contador de fuerza bruta compartido,
+// regenerar codigos de recuperacion, y la desactivacion (que exige contraseña Y codigo).
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
 
@@ -18,6 +19,7 @@ describe("AuthService — verificación en dos pasos (integración)", () => {
   let prisma: PrismaService;
   let service: AuthService;
   let user: { id: string; email: string };
+  let recoveryCodes: string[] = [];
   const PASSWORD = "correct-horse-battery-staple";
 
   beforeAll(async () => {
@@ -37,6 +39,7 @@ describe("AuthService — verificación en dos pasos (integración)", () => {
   });
 
   afterAll(async () => {
+    await prisma.recoveryCode.deleteMany({ where: { userId: user.id } });
     await prisma.user.delete({ where: { id: user.id } });
     await prisma.onModuleDestroy();
   });
@@ -57,13 +60,22 @@ describe("AuthService — verificación en dos pasos (integración)", () => {
     expect(stillDisabled.totpEnabled).toBe(false);
   });
 
-  it("enableTotp activa el 2FA con el código real generado a partir del secreto configurado", async () => {
+  it("enableTotp activa el 2FA con el código real y emite 10 códigos de recuperación distintos, guardados hasheados", async () => {
     const setup = await service.setupTotp(user.id);
     const code = await generate({ secret: setup.secret });
 
     const result = await service.enableTotp(user.id, code);
 
-    expect(result.totpEnabled).toBe(true);
+    expect(result.user.totpEnabled).toBe(true);
+    expect(result.recoveryCodes).toHaveLength(10);
+    expect(new Set(result.recoveryCodes).size).toBe(10);
+    recoveryCodes = result.recoveryCodes;
+
+    const storedCodes = await prisma.recoveryCode.findMany({ where: { userId: user.id } });
+    expect(storedCodes).toHaveLength(10);
+    for (const stored of storedCodes) {
+      expect(recoveryCodes).not.toContain(stored.codeHash); // nunca en claro en la fila
+    }
   });
 
   it("attemptLogin ya no abre sesión directamente: exige el segundo factor", async () => {
@@ -95,6 +107,44 @@ describe("AuthService — verificación en dos pasos (integración)", () => {
     expect(after.failedLoginCount).toBe(0);
   });
 
+  it("un código de recuperación real también completa el login y avisa de cuántos quedan sin usar", async () => {
+    await service.attemptLogin(user.email, PASSWORD);
+
+    const outcome = await service.verifyTotpLogin(user.id, recoveryCodes[0]);
+
+    expect(outcome.status).toBe("success");
+    if (outcome.status !== "success") throw new Error("unreachable");
+    expect(outcome.recoveryCodeWarning).toContain("9 código");
+  });
+
+  it("un código de recuperación ya usado no puede reutilizarse en un login posterior", async () => {
+    await service.attemptLogin(user.email, PASSWORD);
+
+    const outcome = await service.verifyTotpLogin(user.id, recoveryCodes[0]);
+
+    expect(outcome).toEqual({ status: "invalid_credentials" });
+  });
+
+  it("countRemainingRecoveryCodes refleja el código ya consumido", async () => {
+    await expect(service.countRemainingRecoveryCodes(user.id)).resolves.toBe(9);
+  });
+
+  it("regenerateRecoveryCodes exige la contraseña correcta e invalida el lote anterior entero, incluidos los códigos nunca usados", async () => {
+    await expect(service.regenerateRecoveryCodes(user.id, "contraseña-incorrecta")).rejects.toThrow();
+
+    const neverUsedOldCode = recoveryCodes[1];
+    const fresh = await service.regenerateRecoveryCodes(user.id, PASSWORD);
+
+    expect(fresh).toHaveLength(10);
+    expect(new Set(fresh).size).toBe(10);
+    recoveryCodes = fresh;
+    await expect(service.countRemainingRecoveryCodes(user.id)).resolves.toBe(10);
+
+    await service.attemptLogin(user.email, PASSWORD);
+    const outcome = await service.verifyTotpLogin(user.id, neverUsedOldCode);
+    expect(outcome).toEqual({ status: "invalid_credentials" });
+  });
+
   it("disableTotp exige la contraseña correcta, no basta con el código", async () => {
     const stored = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     const secret = new EncryptionService({
@@ -107,19 +157,16 @@ describe("AuthService — verificación en dos pasos (integración)", () => {
     expect(stillEnabled.totpEnabled).toBe(true);
   });
 
-  it("disableTotp con contraseña y código correctos desactiva el 2FA y borra el secreto", async () => {
-    const stored = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    const secret = new EncryptionService({
-      get: () => process.env.ENCRYPTION_KEY,
-    } as unknown as ConfigService).decrypt(stored.totpSecretEncrypted!);
-    const code = await generate({ secret });
-
-    const result = await service.disableTotp(user.id, PASSWORD, code);
+  it("disableTotp con contraseña correcta y un código de recuperación (no el TOTP) desactiva el 2FA, borra el secreto y descarta los códigos", async () => {
+    const result = await service.disableTotp(user.id, PASSWORD, recoveryCodes[2]);
 
     expect(result.totpEnabled).toBe(false);
     const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(after.totpEnabled).toBe(false);
     expect(after.totpSecretEncrypted).toBeNull();
+
+    const remainingCodes = await prisma.recoveryCode.findMany({ where: { userId: user.id } });
+    expect(remainingCodes).toHaveLength(0);
   });
 
   it("tras desactivarlo, el login vuelve a completarse solo con la contraseña", async () => {

@@ -17,7 +17,9 @@ import { AuthService } from "./auth.service";
 import { RegisterDto } from "./dto/register.dto";
 import { LoginDto } from "./dto/login.dto";
 import { TotpCodeDto } from "./dto/totp-code.dto";
+import { SecondFactorCodeDto } from "./dto/second-factor-code.dto";
 import { DisableTotpDto } from "./dto/disable-totp.dto";
+import { RegenerateRecoveryCodesDto } from "./dto/regenerate-recovery-codes.dto";
 import { CurrentUser } from "./decorators/current-user.decorator";
 import { SessionAuthGuard, RequestWithUser } from "./guards/session-auth.guard";
 import { CsrfHeaderGuard } from "./guards/csrf-header.guard";
@@ -93,7 +95,7 @@ export class AuthController {
   @UseGuards(CsrfHeaderGuard)
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  async verifyTotpLogin(@Body() dto: TotpCodeDto, @Req() request: RequestWithUser) {
+  async verifyTotpLogin(@Body() dto: SecondFactorCodeDto, @Req() request: RequestWithUser) {
     const userId = request.session.pendingTotpUserId;
     if (!userId) {
       throw new UnauthorizedException("No hay una verificación en dos pasos pendiente");
@@ -129,8 +131,11 @@ export class AuthController {
       eventType: "LOGIN_SUCCESS",
       ip: request.ip,
     });
+    if (outcome.recoveryCodeWarning) {
+      await this.auditService.record({ userId: outcome.user.id, eventType: "RECOVERY_CODE_USED", ip: request.ip });
+    }
 
-    return outcome.user;
+    return { user: outcome.user, recoveryCodeWarning: outcome.recoveryCodeWarning };
   }
 
   @Post("2fa/setup")
@@ -142,9 +147,10 @@ export class AuthController {
   @Post("2fa/enable")
   @UseGuards(SessionAuthGuard, CsrfHeaderGuard)
   async enableTotp(@CurrentUser() user: SafeUser, @Body() dto: TotpCodeDto, @Req() request: RequestWithUser) {
-    const updated = await this.authService.enableTotp(user.id, dto.code);
+    const result = await this.authService.enableTotp(user.id, dto.code);
     await this.auditService.record({ userId: user.id, eventType: "TOTP_ENABLED", ip: request.ip });
-    return updated;
+    await this.auditService.record({ userId: user.id, eventType: "RECOVERY_CODES_GENERATED", ip: request.ip });
+    return result;
   }
 
   @Post("2fa/disable")
@@ -154,6 +160,24 @@ export class AuthController {
     const updated = await this.authService.disableTotp(user.id, dto.password, dto.code);
     await this.auditService.record({ userId: user.id, eventType: "TOTP_DISABLED", ip: request.ip });
     return updated;
+  }
+
+  @Post("2fa/recovery-codes/regenerate")
+  @UseGuards(SessionAuthGuard, CsrfHeaderGuard)
+  async regenerateRecoveryCodes(
+    @CurrentUser() user: SafeUser,
+    @Body() dto: RegenerateRecoveryCodesDto,
+    @Req() request: RequestWithUser,
+  ) {
+    const recoveryCodes = await this.authService.regenerateRecoveryCodes(user.id, dto.password);
+    await this.auditService.record({ userId: user.id, eventType: "RECOVERY_CODES_GENERATED", ip: request.ip });
+    return { recoveryCodes };
+  }
+
+  @Get("2fa/recovery-codes/status")
+  @UseGuards(SessionAuthGuard)
+  async recoveryCodesStatus(@CurrentUser() user: SafeUser) {
+    return { remaining: await this.authService.countRemainingRecoveryCodes(user.id) };
   }
 
   @Post("logout")

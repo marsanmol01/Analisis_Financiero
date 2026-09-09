@@ -6,6 +6,7 @@ import { AuthService } from "./auth.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { EncryptionService } from "../crypto/encryption.service";
 import { generateTotpSecret } from "./totp";
+import { generateRecoveryCodes, hashRecoveryCode } from "./recovery-codes";
 
 type MockPrisma = {
   user: {
@@ -13,6 +14,13 @@ type MockPrisma = {
     findUniqueOrThrow: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
+  };
+  recoveryCode: {
+    findMany: jest.Mock;
+    update: jest.Mock;
+    deleteMany: jest.Mock;
+    createMany: jest.Mock;
+    count: jest.Mock;
   };
 };
 
@@ -23,6 +31,13 @@ function createMockPrisma(): MockPrisma {
       findUniqueOrThrow: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+    },
+    recoveryCode: {
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      createMany: jest.fn().mockResolvedValue({ count: 10 }),
+      count: jest.fn().mockResolvedValue(0),
     },
   };
 }
@@ -246,6 +261,48 @@ describe("AuthService", () => {
 
       expect(outcome).toEqual({ status: "invalid_credentials" });
     });
+
+    it("completa el login con un código de recuperación válido, lo marca gastado y avisa de cuántos quedan", async () => {
+      const [recoveryCode] = generateRecoveryCodes(1);
+      const codeHash = await hashRecoveryCode(recoveryCode);
+      prisma.user.findUnique.mockResolvedValue({
+        id: "user-1",
+        email: "a@example.com",
+        totpEnabled: true,
+        totpSecretEncrypted: generateTotpSecret(),
+        failedLoginCount: 0,
+        lockedUntil: null,
+      });
+      prisma.recoveryCode.findMany.mockResolvedValue([{ id: "rc-1", codeHash }]);
+      prisma.recoveryCode.count.mockResolvedValue(4);
+
+      const outcome = await service.verifyTotpLogin("user-1", recoveryCode);
+
+      expect(outcome.status).toBe("success");
+      if (outcome.status !== "success") throw new Error("unreachable");
+      expect(outcome.recoveryCodeWarning).toContain("4 códigos");
+      expect(prisma.recoveryCode.update).toHaveBeenCalledWith({
+        where: { id: "rc-1" },
+        data: { usedAt: expect.any(Date) },
+      });
+    });
+
+    it("un código de recuperación ya usado (o inexistente) no completa el login", async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: "user-1",
+        email: "a@example.com",
+        totpEnabled: true,
+        totpSecretEncrypted: generateTotpSecret(),
+        failedLoginCount: 0,
+        lockedUntil: null,
+      });
+      prisma.recoveryCode.findMany.mockResolvedValue([]); // ya gastado: no aparece entre los "usedAt: null"
+
+      const outcome = await service.verifyTotpLogin("user-1", "AAAAA-BBBBB");
+
+      expect(outcome).toEqual({ status: "invalid_credentials" });
+      expect(prisma.recoveryCode.update).not.toHaveBeenCalled();
+    });
   });
 
   describe("setupTotp / enableTotp / disableTotp", () => {
@@ -264,7 +321,7 @@ describe("AuthService", () => {
       });
     });
 
-    it("enableTotp activa el 2FA con un código válido para el secreto pendiente", async () => {
+    it("enableTotp activa el 2FA con un código válido y emite 10 códigos de recuperación distintos", async () => {
       const secret = generateTotpSecret();
       const code = await generate({ secret });
       prisma.user.findUniqueOrThrow.mockResolvedValue({
@@ -276,8 +333,13 @@ describe("AuthService", () => {
 
       const result = await service.enableTotp("user-1", code);
 
-      expect(result.totpEnabled).toBe(true);
+      expect(result.user.totpEnabled).toBe(true);
       expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: "user-1" }, data: { totpEnabled: true } });
+      expect(result.recoveryCodes).toHaveLength(10);
+      expect(new Set(result.recoveryCodes).size).toBe(10);
+      // El lote anterior (si lo hubiera) se sustituye entero antes de emitir el nuevo.
+      expect(prisma.recoveryCode.deleteMany).toHaveBeenCalledWith({ where: { userId: "user-1" } });
+      expect(prisma.recoveryCode.createMany).toHaveBeenCalled();
     });
 
     it("enableTotp rechaza un código incorrecto sin activar el 2FA", async () => {
@@ -290,6 +352,7 @@ describe("AuthService", () => {
 
       await expect(service.enableTotp("user-1", "000000")).rejects.toBeInstanceOf(UnauthorizedException);
       expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.recoveryCode.createMany).not.toHaveBeenCalled();
     });
 
     it("enableTotp rechaza si no se ha llamado antes a setupTotp", async () => {
@@ -302,7 +365,7 @@ describe("AuthService", () => {
       await expect(service.enableTotp("user-1", "123456")).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it("disableTotp exige contraseña Y código correctos, y borra el secreto", async () => {
+    it("disableTotp exige contraseña Y código correctos, borra el secreto y descarta los códigos de recuperación", async () => {
       const passwordHash = await argon2.hash("correct-horse-battery", { type: argon2.argon2id });
       const secret = generateTotpSecret();
       const code = await generate({ secret });
@@ -322,6 +385,26 @@ describe("AuthService", () => {
         where: { id: "user-1" },
         data: { totpEnabled: false, totpSecretEncrypted: null },
       });
+      expect(prisma.recoveryCode.deleteMany).toHaveBeenCalledWith({ where: { userId: "user-1" } });
+    });
+
+    it("disableTotp también acepta un código de recuperación válido en vez del código TOTP", async () => {
+      const passwordHash = await argon2.hash("correct-horse-battery", { type: argon2.argon2id });
+      const [recoveryCode] = generateRecoveryCodes(1);
+      const codeHash = await hashRecoveryCode(recoveryCode);
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: "user-1",
+        email: "a@example.com",
+        passwordHash,
+        totpEnabled: true,
+        totpSecretEncrypted: generateTotpSecret(),
+      });
+      prisma.recoveryCode.findMany.mockResolvedValue([{ id: "rc-1", codeHash }]);
+      prisma.user.update.mockResolvedValue({ id: "user-1", email: "a@example.com", totpEnabled: false });
+
+      const result = await service.disableTotp("user-1", "correct-horse-battery", recoveryCode);
+
+      expect(result.totpEnabled).toBe(false);
     });
 
     it("disableTotp rechaza con la contraseña incorrecta, sin llegar a comprobar el código", async () => {
@@ -356,6 +439,49 @@ describe("AuthService", () => {
         UnauthorizedException,
       );
       expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("regenerateRecoveryCodes / countRemainingRecoveryCodes", () => {
+    it("regenera un lote nuevo de 10 códigos con la contraseña correcta", async () => {
+      const passwordHash = await argon2.hash("correct-horse-battery", { type: argon2.argon2id });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: "user-1",
+        passwordHash,
+        totpEnabled: true,
+      });
+
+      const codes = await service.regenerateRecoveryCodes("user-1", "correct-horse-battery");
+
+      expect(codes).toHaveLength(10);
+      expect(prisma.recoveryCode.deleteMany).toHaveBeenCalledWith({ where: { userId: "user-1" } });
+      expect(prisma.recoveryCode.createMany).toHaveBeenCalled();
+    });
+
+    it("rechaza regenerar con la contraseña incorrecta", async () => {
+      const passwordHash = await argon2.hash("correct-horse-battery", { type: argon2.argon2id });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1", passwordHash, totpEnabled: true });
+
+      await expect(service.regenerateRecoveryCodes("user-1", "contraseña-incorrecta")).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(prisma.recoveryCode.createMany).not.toHaveBeenCalled();
+    });
+
+    it("rechaza regenerar si el 2FA no está activado", async () => {
+      const passwordHash = await argon2.hash("correct-horse-battery", { type: argon2.argon2id });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1", passwordHash, totpEnabled: false });
+
+      await expect(service.regenerateRecoveryCodes("user-1", "correct-horse-battery")).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it("cuenta solo los códigos sin usar", async () => {
+      prisma.recoveryCode.count.mockResolvedValue(7);
+
+      await expect(service.countRemainingRecoveryCodes("user-1")).resolves.toBe(7);
+      expect(prisma.recoveryCode.count).toHaveBeenCalledWith({ where: { userId: "user-1", usedAt: null } });
     });
   });
 });
