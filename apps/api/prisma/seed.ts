@@ -27,7 +27,7 @@ const SYSTEM_CATEGORIES: { name: string; children?: string[] }[] = [
   { name: "Impuestos" },
   { name: "Servicios" },
   { name: "Transferencias" },
-  { name: "Ingresos", children: ["Nómina", "Reembolsos"] },
+  { name: "Ingresos", children: ["Nómina", "Paga extra", "Reembolsos"] },
   { name: "Inversión" },
   { name: "Otros" },
 ];

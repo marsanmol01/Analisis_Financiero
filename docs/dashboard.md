@@ -56,8 +56,25 @@ Reproducido en [`dashboard.isolation.spec.ts`](../apps/api/src/dashboard/dashboa
 
 El endpoint no añade ninguna consulta propia a la base de datos más allá de las ya cubiertas por los servicios que compone; su aislamiento depende enteramente del de esos servicios (ya verificado en cada uno). Se añade una comprobación explícita en [`dashboard.isolation.spec.ts`](../apps/api/src/dashboard/dashboard.isolation.spec.ts) de que el saldo/cuenta de otro usuario no aparece en ningún campo del dashboard.
 
+## Ciclo de nómina en el dashboard
+
+El dashboard incluye `payCycle` (ver `docs/analytics-engine.md` para el cálculo completo): el resumen del periodo desde la última nómina categorizada hasta hoy, con su comparación al ciclo anterior y a la media de los últimos ciclos. Si el usuario todavía no ha categorizado ningún ingreso como "Nómina", `payCycle.hasSalaryData` es `false` y el frontend muestra una sugerencia para hacerlo, sin que el resto del dashboard se vea afectado — es una vista adicional al resumen por mes de calendario, no un reemplazo.
+
+## Consejos (`insights`)
+
+Observaciones deterministas (nunca IA) generadas por [`insights.ts`](../apps/api/src/dashboard/insights.ts) a partir de datos ya calculados: se prioriza el ciclo de nómina cuando hay datos para calcularlo (`payCycle.hasSalaryData`); si no, cae al mes de calendario que el resto del dashboard ya usa (reutilizando `summary`, con una consulta adicional del desglose por categoría del mes anterior para poder comparar).
+
+Reglas aplicadas, en este orden:
+1. Si se ha gastado más de lo ingresado en el periodo, un aviso con el importe exacto de más — se antepone a cualquier otro consejo.
+2. Tasa de ahorro del periodo comparada con la media propia del usuario: aviso si está notablemente por debajo (≥10 puntos porcentuales), felicitación si está claramente por encima (≥5 puntos).
+3. La categoría de mayor gasto del periodo, con su importe y qué porcentaje representa del total.
+4. La categoría con mayor incremento absoluto y porcentual frente al periodo anterior, solo si el incremento supera un mínimo en ambos sentidos (20 € y 15%) — para no generar ruido con variaciones pequeñas en categorías de gasto marginal.
+
+Todos los umbrales son constantes nombradas en `insights.ts`, pensadas para ajustarse si en el uso real resultan demasiado (o poco) sensibles. Cubierto por [`insights.spec.ts`](../apps/api/src/dashboard/insights.spec.ts).
+
 ## Fuera de alcance en este bloque
 
 - Sin auditoría (solo lectura, no muta nada).
 - Las alertas no se persisten ni se marcan como leídas/descartadas — se recalculan en cada petición.
 - Comparación interanual todavía no incluida (ver `docs/analytics-engine.md`).
+- Los consejos tampoco se persisten ni se pueden descartar; se recalculan en cada petición igual que las alertas.

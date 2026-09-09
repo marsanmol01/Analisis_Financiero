@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import {
   bucketByMonth,
   BucketableTransaction,
+  computeSavingsRate,
   lastMonthKeys,
   MonthlyAmounts,
   monthKeyOf,
@@ -12,10 +13,15 @@ import {
   previousMonthKey,
   round2,
 } from "./analytics-math";
+import { buildPayCycles, daysBetween } from "./pay-cycle";
 import { SummaryQueryDto } from "./dto/summary-query.dto";
 import { MonthlyEvolutionQueryDto } from "./dto/monthly-evolution-query.dto";
 import { BreakdownQueryDto } from "./dto/breakdown-query.dto";
 import { TopExpensesQueryDto } from "./dto/top-expenses-query.dto";
+import { PayCycleQueryDto } from "./dto/pay-cycle-query.dto";
+
+const NOMINA_CATEGORY_NAME = "Nómina";
+const PAGA_EXTRA_CATEGORY_NAME = "Paga extra";
 
 export interface SummaryResult {
   month: string;
@@ -64,6 +70,27 @@ export interface NetWorthResult {
 export interface NetWorthEvolutionPoint {
   month: string;
   netWorth: number;
+}
+
+export interface PayCyclePeriod {
+  startDate: string;
+  endDate: string;
+  isOpen: boolean;
+  daysElapsed: number;
+  income: number;
+  expenses: number;
+  savings: number;
+  savingsRate: number | null;
+  salaryIncome: number;
+  extraIncome: number;
+  byCategory: CategoryBreakdownItem[];
+}
+
+export interface PayCycleSummaryResult {
+  hasSalaryData: boolean;
+  current: PayCyclePeriod | null;
+  previous: PayCyclePeriod | null;
+  average: { cycles: number; income: number; expenses: number; savingsRate: number | null } | null;
 }
 
 // Tipos de cuenta que se consideran dinero de uso inmediato para "dinero realmente disponible".
@@ -143,7 +170,18 @@ export class AnalyticsService {
 
   async getByCategory(userId: string, query: BreakdownQueryDto): Promise<CategoryBreakdownItem[]> {
     const { from, to } = this.resolveRange(query);
+    return this.groupByCategory(userId, from, to, query.accountId);
+  }
 
+  // Extraido de getByCategory para reutilizarlo con rangos exactos ya resueltos (p.ej. los
+  // limites de un ciclo de nomina), sin repetir el ajuste de "hasta, inclusivo -> +1 dia" que
+  // solo tiene sentido para el rango que llega desde una peticion HTTP.
+  private async groupByCategory(
+    userId: string,
+    from: Date,
+    to: Date,
+    accountId?: string,
+  ): Promise<CategoryBreakdownItem[]> {
     const grouped = await this.prisma.transaction.groupBy({
       by: ["categoryId"],
       where: {
@@ -151,7 +189,7 @@ export class AnalyticsService {
         isInternalTransfer: false,
         isExpense: true,
         date: { gte: from, lt: to },
-        account: { userId, ...(query.accountId ? { id: query.accountId } : {}) },
+        account: { userId, ...(accountId ? { id: accountId } : {}) },
       },
       _sum: { amount: true },
       _count: true,
@@ -276,6 +314,108 @@ export class AnalyticsService {
       const netWorth = round2([...latestByAccount.values()].reduce((sum, b) => sum + b, 0));
       return { month, netWorth };
     });
+  }
+
+  // "Ciclo de nomina": en vez de mes de calendario, el periodo va desde que se cobra la nomina
+  // hasta que se cobra la siguiente. Una paga extra cuenta como ingreso del ciclo en el que cae,
+  // pero nunca abre un ciclo nuevo — solo un ingreso categorizado como "Nomina" lo hace.
+  async getPayCycleSummary(userId: string, query: PayCycleQueryDto): Promise<PayCycleSummaryResult> {
+    const compareCycles = query.compareCycles ?? 6;
+    const nominaCategoryId = await this.findCategoryIdByName(NOMINA_CATEGORY_NAME);
+    if (!nominaCategoryId) {
+      return { hasSalaryData: false, current: null, previous: null, average: null };
+    }
+
+    const nominaTransactions = await this.prisma.transaction.findMany({
+      where: { deletedAt: null, isIncome: true, categoryId: nominaCategoryId, account: { userId } },
+      select: { date: true },
+      orderBy: { date: "asc" },
+    });
+    if (nominaTransactions.length === 0) {
+      return { hasSalaryData: false, current: null, previous: null, average: null };
+    }
+
+    const pagaExtraCategoryId = await this.findCategoryIdByName(PAGA_EXTRA_CATEGORY_NAME);
+    const cycles = buildPayCycles(nominaTransactions.map((t) => t.date), new Date());
+
+    const currentBounds = cycles[cycles.length - 1];
+    const previousBounds = cycles.length >= 2 ? cycles[cycles.length - 2] : undefined;
+    const compareBounds = cycles.slice(Math.max(0, cycles.length - 1 - compareCycles), cycles.length - 1);
+
+    const [current, previous, comparePeriods] = await Promise.all([
+      this.buildCyclePeriod(userId, currentBounds, nominaCategoryId, pagaExtraCategoryId),
+      previousBounds
+        ? this.buildCyclePeriod(userId, previousBounds, nominaCategoryId, pagaExtraCategoryId)
+        : Promise.resolve(null),
+      Promise.all(compareBounds.map((b) => this.buildCyclePeriod(userId, b, nominaCategoryId, pagaExtraCategoryId))),
+    ]);
+
+    const average =
+      comparePeriods.length > 0
+        ? {
+            cycles: comparePeriods.length,
+            income: round2(comparePeriods.reduce((sum, p) => sum + p.income, 0) / comparePeriods.length),
+            expenses: round2(comparePeriods.reduce((sum, p) => sum + p.expenses, 0) / comparePeriods.length),
+            savingsRate: computeSavingsRate(
+              comparePeriods.reduce((sum, p) => sum + p.income, 0) / comparePeriods.length,
+              comparePeriods.reduce((sum, p) => sum + p.expenses, 0) / comparePeriods.length,
+            ),
+          }
+        : null;
+
+    return { hasSalaryData: true, current, previous, average };
+  }
+
+  private async buildCyclePeriod(
+    userId: string,
+    bounds: { start: Date; end: Date; isOpen: boolean },
+    nominaCategoryId: string,
+    pagaExtraCategoryId: string | null,
+  ): Promise<PayCyclePeriod> {
+    const rows = await this.prisma.transaction.findMany({
+      where: {
+        deletedAt: null,
+        isInternalTransfer: false,
+        date: { gte: bounds.start, lt: bounds.end },
+        account: { userId },
+      },
+      select: { amount: true, isIncome: true, isExpense: true, categoryId: true },
+    });
+
+    let income = 0;
+    let expenses = 0;
+    let salaryIncome = 0;
+    let extraIncome = 0;
+    for (const row of rows) {
+      const amount = Number(row.amount);
+      if (row.isIncome) {
+        income += amount;
+        if (row.categoryId === nominaCategoryId) salaryIncome += amount;
+        else if (pagaExtraCategoryId && row.categoryId === pagaExtraCategoryId) extraIncome += amount;
+      }
+      if (row.isExpense) expenses += Math.abs(amount);
+    }
+
+    const byCategory = await this.groupByCategory(userId, bounds.start, bounds.end);
+
+    return {
+      startDate: bounds.start.toISOString(),
+      endDate: bounds.end.toISOString(),
+      isOpen: bounds.isOpen,
+      daysElapsed: daysBetween(bounds.start, bounds.end),
+      income: round2(income),
+      expenses: round2(expenses),
+      savings: round2(income - expenses),
+      savingsRate: computeSavingsRate(income, expenses),
+      salaryIncome: round2(salaryIncome),
+      extraIncome: round2(extraIncome),
+      byCategory,
+    };
+  }
+
+  private async findCategoryIdByName(name: string): Promise<string | null> {
+    const category = await this.prisma.category.findFirst({ where: { name, isSystem: true } });
+    return category?.id ?? null;
   }
 
   private resolveRange(query: { from?: string; to?: string }): { from: Date; to: Date } {

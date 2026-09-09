@@ -5,6 +5,7 @@ import type {
   MerchantBreakdownItem,
   MonthlyAmounts,
   NetWorthResult,
+  PayCycleSummary,
   SummaryResult,
 } from "../types/analytics";
 import type { Transaction } from "../types/transaction";
@@ -52,5 +53,12 @@ export function useNetWorth() {
   return useQuery({
     queryKey: ["analytics", "net-worth"],
     queryFn: () => api.get<NetWorthResult>("/analytics/net-worth"),
+  });
+}
+
+export function usePayCycleSummary(params: { compareCycles?: number } = {}) {
+  return useQuery({
+    queryKey: ["analytics", "pay-cycle", params],
+    queryFn: () => api.get<PayCycleSummary>("/analytics/pay-cycle", q(params)),
   });
 }

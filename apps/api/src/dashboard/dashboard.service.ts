@@ -1,10 +1,11 @@
 import { Injectable } from "@nestjs/common";
-import { AnalyticsService } from "../analytics/analytics.service";
+import { AnalyticsService, CategoryBreakdownItem, PayCycleSummaryResult, SummaryResult } from "../analytics/analytics.service";
 import { BudgetsService } from "../budgets/budgets.service";
 import { SavingsGoalsService } from "../savings-goals/savings-goals.service";
 import { RecurringService } from "../recurring/recurring.service";
-import { monthKeyOf, monthKeyRange } from "../analytics/analytics-math";
+import { computeSavingsRate, monthKeyOf, monthKeyRange, previousMonthKey } from "../analytics/analytics-math";
 import { computeAvailableMoney, computeDailyBudget, daysRemainingInMonth } from "./dashboard-math";
+import { buildInsights, Insight } from "./insights";
 import { DashboardQueryDto } from "./dto/dashboard-query.dto";
 
 export interface DashboardAlert {
@@ -39,6 +40,7 @@ export class DashboardService {
       budgetsProgress,
       savingsGoals,
       recurringGroups,
+      payCycle,
     ] = await Promise.all([
       this.analyticsService.getSummary(userId, {}),
       this.analyticsService.getNetWorth(userId),
@@ -50,6 +52,7 @@ export class DashboardService {
       this.budgetsService.getProgress(userId, {}),
       this.savingsGoalsService.findAll(userId),
       this.recurringService.findAll(userId, { isActive: true }),
+      this.analyticsService.getPayCycleSummary(userId, {}),
     ]);
 
     const { to: monthEnd } = monthKeyRange(currentMonth);
@@ -75,6 +78,7 @@ export class DashboardService {
     const dailyBudget = computeDailyBudget(availableMoney, daysRemainingInMonth(today));
 
     const alerts = this.buildAlerts(budgetsProgress, activeGoals, recurringGroups, today);
+    const insights = await this.buildDashboardInsights(userId, payCycle, summary, byCategory);
 
     return {
       summary,
@@ -86,6 +90,7 @@ export class DashboardService {
       budgetsProgress,
       savingsGoals,
       recurringGroups,
+      payCycle,
       availableMoney: {
         liquidBalance,
         pendingRecurringPayments: Math.round(pendingRecurringPayments * 100) / 100,
@@ -94,7 +99,58 @@ export class DashboardService {
         dailyBudget,
       },
       alerts,
+      insights,
     };
+  }
+
+  // Prioriza el ciclo de nomina (desde que se cobra hasta la siguiente) cuando hay datos para
+  // calcularlo; si el usuario todavia no ha categorizado ningun ingreso como "Nomina", cae al
+  // mes de calendario que el resto del dashboard ya usa, para no dejar la seccion vacia.
+  private async buildDashboardInsights(
+    userId: string,
+    payCycle: PayCycleSummaryResult,
+    summary: SummaryResult,
+    byCategory: CategoryBreakdownItem[],
+  ): Promise<Insight[]> {
+    if (payCycle.hasSalaryData && payCycle.current) {
+      return buildInsights({
+        periodLabel: "en tu ciclo de nómina actual",
+        current: {
+          income: payCycle.current.income,
+          expenses: payCycle.current.expenses,
+          savingsRate: payCycle.current.savingsRate,
+          byCategory: payCycle.current.byCategory,
+        },
+        previous: payCycle.previous
+          ? {
+              income: payCycle.previous.income,
+              expenses: payCycle.previous.expenses,
+              savingsRate: payCycle.previous.savingsRate,
+              byCategory: payCycle.previous.byCategory,
+            }
+          : null,
+        averageSavingsRate: payCycle.average?.savingsRate ?? null,
+      });
+    }
+
+    const currentMonth = monthKeyOf(new Date());
+    const previousRange = monthKeyRange(previousMonthKey(currentMonth));
+    const previousByCategory = await this.analyticsService.getByCategory(userId, {
+      from: previousRange.from.toISOString().slice(0, 10),
+      to: new Date(previousRange.to.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    });
+
+    return buildInsights({
+      periodLabel: "este mes",
+      current: { income: summary.income, expenses: summary.expenses, savingsRate: summary.savingsRate, byCategory },
+      previous: {
+        income: summary.previousMonth.income,
+        expenses: summary.previousMonth.expenses,
+        savingsRate: summary.previousMonth.savingsRate,
+        byCategory: previousByCategory,
+      },
+      averageSavingsRate: computeSavingsRate(summary.averageLastMonths.income, summary.averageLastMonths.expenses),
+    });
   }
 
   private buildAlerts(

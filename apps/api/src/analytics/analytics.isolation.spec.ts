@@ -163,6 +163,88 @@ describe("AnalyticsService (integracion real: transferencias, aislamiento, agreg
     await prisma.account.delete({ where: { id: loanAccount.id } });
   });
 
+  describe("getPayCycleSummary", () => {
+    // Usuario propio y dedicado: el ciclo abierto de esta prueba llega hasta "ahora", asi que
+    // si compartiera cuentas con userA (que ya tiene movimientos en 2026-07/2026-08 de otras
+    // pruebas de este fichero) ese rango tan amplio los engulliria — el calculo es
+    // deliberadamente global entre cuentas del mismo usuario, no solo de una cuenta.
+    let userC: { id: string };
+    let accountC: { id: string };
+    let nominaCategoryId: string;
+    let pagaExtraCategoryId: string;
+
+    beforeAll(async () => {
+      const nomina = await prisma.category.findFirst({ where: { name: "Nómina", isSystem: true } });
+      const pagaExtra = await prisma.category.findFirst({ where: { name: "Paga extra", isSystem: true } });
+      if (!nomina || !pagaExtra) {
+        throw new Error("Se esperaban las categorías del sistema 'Nómina' y 'Paga extra' ya sembradas");
+      }
+      nominaCategoryId = nomina.id;
+      pagaExtraCategoryId = pagaExtra.id;
+
+      const passwordHash = await argon2.hash("not-used-in-this-test", { type: argon2.argon2id });
+      userC = await prisma.user.create({ data: { email: `analytics-c-${Date.now()}@example.test`, passwordHash } });
+      accountC = await accountsService.create(userC.id, {
+        name: "Cuenta ciclo de nomina",
+        type: "CHECKING",
+        currency: "EUR",
+        balance: 0,
+      });
+
+      // Tres nominas seguidas -> dos ciclos completos (enero, febrero) y uno abierto (marzo, "hoy").
+      await createTx(accountC.id, "2025-01-01", 3000, "NOMINA ENERO", { categoryId: nominaCategoryId });
+      await createTx(accountC.id, "2025-01-10", -1000, "GASTO ENERO");
+      await createTx(accountC.id, "2025-02-01", 3000, "NOMINA FEBRERO", { categoryId: nominaCategoryId });
+      // Una paga extra dentro del ciclo de febrero: cuenta como ingreso de ese ciclo, pero NO
+      // debe abrir un ciclo propio ni desplazar el inicio del ciclo de marzo.
+      await createTx(accountC.id, "2025-02-20", 2000, "PAGA EXTRA FEBRERO", { categoryId: pagaExtraCategoryId });
+      await createTx(accountC.id, "2025-02-15", -1500, "GASTO FEBRERO");
+      await createTx(accountC.id, "2025-03-01", 3200, "NOMINA MARZO", { categoryId: nominaCategoryId });
+      await createTx(accountC.id, "2025-03-05", -500, "GASTO MARZO");
+    });
+
+    afterAll(async () => {
+      await prisma.transaction.deleteMany({ where: { accountId: accountC.id } });
+      await prisma.account.delete({ where: { id: accountC.id } });
+      await prisma.user.delete({ where: { id: userC.id } });
+    });
+
+    it("el ciclo actual empieza en la ultima nomina y queda abierto hasta hoy", async () => {
+      const result = await service.getPayCycleSummary(userC.id, {});
+
+      expect(result.hasSalaryData).toBe(true);
+      expect(result.current?.startDate.slice(0, 10)).toBe("2025-03-01");
+      expect(result.current?.isOpen).toBe(true);
+      expect(result.current?.income).toBe(3200);
+      expect(result.current?.salaryIncome).toBe(3200);
+      expect(result.current?.extraIncome).toBe(0);
+      expect(result.current?.expenses).toBe(500);
+    });
+
+    it("una paga extra suma al ciclo en el que cae sin abrir un ciclo nuevo", async () => {
+      const result = await service.getPayCycleSummary(userC.id, {});
+
+      expect(result.previous?.startDate.slice(0, 10)).toBe("2025-02-01");
+      expect(result.previous?.income).toBe(5000); // 3000 nomina + 2000 paga extra
+      expect(result.previous?.salaryIncome).toBe(3000);
+      expect(result.previous?.extraIncome).toBe(2000);
+      expect(result.previous?.expenses).toBe(1500);
+    });
+
+    it("la media de los ultimos ciclos completos no incluye el ciclo abierto", async () => {
+      const result = await service.getPayCycleSummary(userC.id, { compareCycles: 6 });
+
+      expect(result.average?.cycles).toBe(2); // solo enero y febrero, marzo esta abierto
+      expect(result.average?.income).toBe(4000); // (3000 + 5000) / 2
+      expect(result.average?.expenses).toBe(1250); // (1000 + 1500) / 2
+    });
+
+    it("sin ninguna nomina categorizada, hasSalaryData es false en vez de fallar", async () => {
+      const result = await service.getPayCycleSummary(userB.id, {});
+      expect(result).toEqual({ hasSalaryData: false, current: null, previous: null, average: null });
+    });
+  });
+
   it("un usuario no ve datos de otro usuario en ningun agregado", async () => {
     const accountB = await accountsService.create(userB.id, {
       name: "Cuenta de B",

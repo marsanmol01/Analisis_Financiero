@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { AlertTriangle, Info, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, Info, Lightbulb, ThumbsUp, TrendingDown, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Spinner } from "../../components/ui/spinner";
@@ -11,6 +11,7 @@ import { useDashboard } from "../../hooks/use-dashboard";
 import { useCategories } from "../../hooks/use-categories";
 import { formatCurrency, formatDate, formatPercent } from "../../lib/format";
 import type { DashboardAlert } from "../../types/dashboard";
+import type { Insight } from "../../types/insight";
 
 export function DashboardPage() {
   const { data: user } = useCurrentUser();
@@ -48,6 +49,22 @@ export function DashboardPage() {
                 <AlertBanner key={index} alert={alert} />
               ))}
             </div>
+          )}
+
+          {data.insights.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Lightbulb className="h-5 w-5 text-[var(--color-brand-500)]" />
+                  <CardTitle>Consejos</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2 pt-0">
+                {data.insights.map((insight, index) => (
+                  <InsightBanner key={index} insight={insight} />
+                ))}
+              </CardContent>
+            </Card>
           )}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -95,6 +112,48 @@ export function DashboardPage() {
               </p>
             </CardContent>
           </Card>
+
+          {data.payCycle.hasSalaryData && data.payCycle.current ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Tu ciclo de nómina</CardTitle>
+                <CardDescription>
+                  Desde el {formatDate(data.payCycle.current.startDate)} (día {data.payCycle.current.daysElapsed} de
+                  este ciclo)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 gap-4 pt-0 sm:grid-cols-4">
+                <MiniStat label="Ingresos" value={formatCurrency(data.payCycle.current.income)} />
+                <MiniStat label="Gastos" value={formatCurrency(data.payCycle.current.expenses)} />
+                <MiniStat label="Ahorro" value={formatCurrency(data.payCycle.current.savings)} />
+                <MiniStat label="Tasa de ahorro" value={formatPercent(data.payCycle.current.savingsRate)} emphasize />
+              </CardContent>
+              {data.payCycle.current.extraIncome > 0 && (
+                <CardContent className="pt-0">
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Incluye {formatCurrency(data.payCycle.current.extraIncome)} de paga extra en este ciclo.
+                  </p>
+                </CardContent>
+              )}
+              {data.payCycle.average && (
+                <CardContent className="pt-0">
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Media de tus últimos {data.payCycle.average.cycles} ciclos:{" "}
+                    {formatCurrency(data.payCycle.average.income)} ingresos, {formatCurrency(data.payCycle.average.expenses)}{" "}
+                    gastos.
+                  </p>
+                </CardContent>
+              )}
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="flex items-start gap-3 pt-6 text-sm text-[var(--color-text-muted)]">
+                <Info className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-brand-500)]" />
+                Categoriza el ingreso de tu nómina como "Nómina" en Transacciones para ver aquí tu resumen desde el
+                día que cobras, en vez de por mes de calendario.
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card>
@@ -246,6 +305,22 @@ function AlertBanner({ alert }: { alert: DashboardAlert }) {
     <div className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${styles[alert.severity]}`}>
       <Icon className="mt-0.5 h-4 w-4 shrink-0" />
       {alert.message}
+    </div>
+  );
+}
+
+function InsightBanner({ insight }: { insight: Insight }) {
+  const styles: Record<Insight["severity"], string> = {
+    positive: "border-[var(--color-positive)]/20 bg-[var(--color-positive-muted)] text-[var(--color-positive)]",
+    warning: "border-[var(--color-warning)]/20 bg-[var(--color-warning-muted)] text-[var(--color-warning)]",
+    info: "border-[var(--color-brand-500)]/20 bg-[var(--color-brand-50)] text-[var(--color-brand-700)]",
+  };
+  const Icon = insight.severity === "positive" ? ThumbsUp : insight.severity === "warning" ? AlertTriangle : Info;
+
+  return (
+    <div className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${styles[insight.severity]}`}>
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      {insight.message}
     </div>
   );
 }

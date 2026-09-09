@@ -62,3 +62,24 @@ export interface NetWorthEvolutionPoint {
   month: string;
   netWorth: number;
 }
+
+export interface PayCyclePeriod {
+  startDate: string;
+  endDate: string;
+  isOpen: boolean;
+  daysElapsed: number;
+  income: number;
+  expenses: number;
+  savings: number;
+  savingsRate: number | null;
+  salaryIncome: number;
+  extraIncome: number;
+  byCategory: CategoryBreakdownItem[];
+}
+
+export interface PayCycleSummary {
+  hasSalaryData: boolean;
+  current: PayCyclePeriod | null;
+  previous: PayCyclePeriod | null;
+  average: { cycles: number; income: number; expenses: number; savingsRate: number | null } | null;
+}

@@ -1,5 +1,13 @@
-import type { CategoryBreakdownItem, MonthlyAmounts, NetWorthEvolutionPoint, NetWorthResult, SummaryResult } from "./analytics";
+import type {
+  CategoryBreakdownItem,
+  MonthlyAmounts,
+  NetWorthEvolutionPoint,
+  NetWorthResult,
+  PayCycleSummary,
+  SummaryResult,
+} from "./analytics";
 import type { BudgetProgress } from "./budget";
+import type { Insight } from "./insight";
 import type { RecurringGroup } from "./recurring";
 import type { SavingsGoal } from "./savings-goal";
 import type { Transaction } from "./transaction";
@@ -28,6 +36,8 @@ export interface DashboardResponse {
   budgetsProgress: BudgetProgress[];
   savingsGoals: SavingsGoal[];
   recurringGroups: RecurringGroup[];
+  payCycle: PayCycleSummary;
   availableMoney: AvailableMoney;
   alerts: DashboardAlert[];
+  insights: Insight[];
 }

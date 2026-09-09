@@ -7,6 +7,7 @@ import { SummaryQueryDto } from "./dto/summary-query.dto";
 import { MonthlyEvolutionQueryDto } from "./dto/monthly-evolution-query.dto";
 import { BreakdownQueryDto } from "./dto/breakdown-query.dto";
 import { TopExpensesQueryDto } from "./dto/top-expenses-query.dto";
+import { PayCycleQueryDto } from "./dto/pay-cycle-query.dto";
 
 // Modulo de solo lectura: ninguna ruta muta datos, por eso no lleva CsrfHeaderGuard ni
 // auditoria (no hay nada que auditar en una consulta).
@@ -43,5 +44,10 @@ export class AnalyticsController {
   @Get("net-worth")
   getNetWorth(@CurrentUser() user: SafeUser) {
     return this.analyticsService.getNetWorth(user.id);
+  }
+
+  @Get("pay-cycle")
+  getPayCycleSummary(@CurrentUser() user: SafeUser, @Query() query: PayCycleQueryDto) {
+    return this.analyticsService.getPayCycleSummary(user.id, query);
   }
 }
