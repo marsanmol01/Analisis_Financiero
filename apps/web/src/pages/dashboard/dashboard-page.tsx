@@ -67,6 +67,48 @@ export function DashboardPage() {
             </Card>
           )}
 
+          {data.payCycle.hasSalaryData && data.payCycle.current ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Tu ciclo de nómina</CardTitle>
+                <CardDescription>
+                  Desde el {formatDate(data.payCycle.current.startDate)} (día {data.payCycle.current.daysElapsed} de
+                  este ciclo)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 gap-4 pt-0 sm:grid-cols-4">
+                <MiniStat label="Ingresos" value={formatCurrency(data.payCycle.current.income)} />
+                <MiniStat label="Gastos" value={formatCurrency(data.payCycle.current.expenses)} />
+                <MiniStat label="Ahorro" value={formatCurrency(data.payCycle.current.savings)} />
+                <MiniStat label="Tasa de ahorro" value={formatPercent(data.payCycle.current.savingsRate)} emphasize />
+              </CardContent>
+              {data.payCycle.current.extraIncome > 0 && (
+                <CardContent className="pt-0">
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Incluye {formatCurrency(data.payCycle.current.extraIncome)} de paga extra en este ciclo.
+                  </p>
+                </CardContent>
+              )}
+              {data.payCycle.average && (
+                <CardContent className="pt-0">
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Media de tus últimos {data.payCycle.average.cycles} ciclos:{" "}
+                    {formatCurrency(data.payCycle.average.income)} ingresos, {formatCurrency(data.payCycle.average.expenses)}{" "}
+                    gastos.
+                  </p>
+                </CardContent>
+              )}
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="flex items-start gap-3 pt-6 text-sm text-[var(--color-text-muted)]">
+                <Info className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-brand-500)]" />
+                Categoriza el ingreso de tu nómina como "Nómina" en Transacciones para ver aquí tu resumen desde el
+                día que cobras, en vez de por mes de calendario.
+              </CardContent>
+            </Card>
+          )}
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <SummaryCard title="Patrimonio total" value={formatCurrency(data.netWorth.netWorth)} />
             <SummaryCard
@@ -112,48 +154,6 @@ export function DashboardPage() {
               </p>
             </CardContent>
           </Card>
-
-          {data.payCycle.hasSalaryData && data.payCycle.current ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Tu ciclo de nómina</CardTitle>
-                <CardDescription>
-                  Desde el {formatDate(data.payCycle.current.startDate)} (día {data.payCycle.current.daysElapsed} de
-                  este ciclo)
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-4 pt-0 sm:grid-cols-4">
-                <MiniStat label="Ingresos" value={formatCurrency(data.payCycle.current.income)} />
-                <MiniStat label="Gastos" value={formatCurrency(data.payCycle.current.expenses)} />
-                <MiniStat label="Ahorro" value={formatCurrency(data.payCycle.current.savings)} />
-                <MiniStat label="Tasa de ahorro" value={formatPercent(data.payCycle.current.savingsRate)} emphasize />
-              </CardContent>
-              {data.payCycle.current.extraIncome > 0 && (
-                <CardContent className="pt-0">
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    Incluye {formatCurrency(data.payCycle.current.extraIncome)} de paga extra en este ciclo.
-                  </p>
-                </CardContent>
-              )}
-              {data.payCycle.average && (
-                <CardContent className="pt-0">
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    Media de tus últimos {data.payCycle.average.cycles} ciclos:{" "}
-                    {formatCurrency(data.payCycle.average.income)} ingresos, {formatCurrency(data.payCycle.average.expenses)}{" "}
-                    gastos.
-                  </p>
-                </CardContent>
-              )}
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="flex items-start gap-3 pt-6 text-sm text-[var(--color-text-muted)]">
-                <Info className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-brand-500)]" />
-                Categoriza el ingreso de tu nómina como "Nómina" en Transacciones para ver aquí tu resumen desde el
-                día que cobras, en vez de por mes de calendario.
-              </CardContent>
-            </Card>
-          )}
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card>
