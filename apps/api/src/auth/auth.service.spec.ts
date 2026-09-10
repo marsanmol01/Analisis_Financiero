@@ -87,7 +87,7 @@ describe("AuthService", () => {
 
       const result = await service.register({ email: "a@example.com", password: "correct-horse-battery" });
 
-      expect(result).toEqual({ id: "user-1", email: "a@example.com", totpEnabled: false });
+      expect(result).toEqual({ id: "user-1", email: "a@example.com", totpEnabled: false, monthlySavingsTarget: null });
       const createdArgs = prisma.user.create.mock.calls[0][0];
       expect(createdArgs.data.passwordHash).not.toEqual("correct-horse-battery");
       expect(await argon2.verify(createdArgs.data.passwordHash, "correct-horse-battery")).toBe(true);
@@ -117,7 +117,10 @@ describe("AuthService", () => {
 
       const outcome = await service.attemptLogin("a@example.com", "correct-horse-battery");
 
-      expect(outcome).toEqual({ status: "success", user: { id: "user-1", email: "a@example.com", totpEnabled: false } });
+      expect(outcome).toEqual({
+        status: "success",
+        user: { id: "user-1", email: "a@example.com", totpEnabled: false, monthlySavingsTarget: null },
+      });
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: "user-1" },
         data: { failedLoginCount: 0, lockedUntil: null },
@@ -222,7 +225,10 @@ describe("AuthService", () => {
 
       const outcome = await service.verifyTotpLogin("user-1", code);
 
-      expect(outcome).toEqual({ status: "success", user: { id: "user-1", email: "a@example.com", totpEnabled: true } });
+      expect(outcome).toEqual({
+        status: "success",
+        user: { id: "user-1", email: "a@example.com", totpEnabled: true, monthlySavingsTarget: null },
+      });
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: "user-1" },
         data: { failedLoginCount: 0, lockedUntil: null },
@@ -482,6 +488,42 @@ describe("AuthService", () => {
 
       await expect(service.countRemainingRecoveryCodes("user-1")).resolves.toBe(7);
       expect(prisma.recoveryCode.count).toHaveBeenCalledWith({ where: { userId: "user-1", usedAt: null } });
+    });
+  });
+
+  describe("updateSettings", () => {
+    it("fija el objetivo de ahorro mensual", async () => {
+      prisma.user.update.mockResolvedValue({
+        id: "user-1",
+        email: "a@example.com",
+        totpEnabled: false,
+        monthlySavingsTarget: 1200,
+      });
+
+      const result = await service.updateSettings("user-1", { monthlySavingsTarget: 1200 });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: "user-1" },
+        data: { monthlySavingsTarget: 1200 },
+      });
+      expect(result.monthlySavingsTarget).toBe(1200);
+    });
+
+    it("borra el objetivo cuando se manda null", async () => {
+      prisma.user.update.mockResolvedValue({
+        id: "user-1",
+        email: "a@example.com",
+        totpEnabled: false,
+        monthlySavingsTarget: null,
+      });
+
+      const result = await service.updateSettings("user-1", { monthlySavingsTarget: null });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: "user-1" },
+        data: { monthlySavingsTarget: null },
+      });
+      expect(result.monthlySavingsTarget).toBeNull();
     });
   });
 });

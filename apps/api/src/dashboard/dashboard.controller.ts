@@ -13,6 +13,6 @@ export class DashboardController {
 
   @Get()
   getDashboard(@CurrentUser() user: SafeUser, @Query() query: DashboardQueryDto) {
-    return this.dashboardService.getDashboard(user.id, query);
+    return this.dashboardService.getDashboard(user.id, query, user.monthlySavingsTarget);
   }
 }

@@ -6,6 +6,7 @@ import { User } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { EncryptionService } from "../crypto/encryption.service";
 import { RegisterDto } from "./dto/register.dto";
+import { UpdateUserSettingsDto } from "./dto/update-user-settings.dto";
 import { buildOtpAuthUrl, generateTotpSecret, verifyTotpCode } from "./totp";
 import { generateRecoveryCodes, hashRecoveryCode, verifyRecoveryCodeHash } from "./recovery-codes";
 
@@ -13,6 +14,7 @@ export interface SafeUser {
   id: string;
   email: string;
   totpEnabled: boolean;
+  monthlySavingsTarget: number | null;
 }
 
 export interface TotpSetupResult {
@@ -52,7 +54,20 @@ export class AuthService {
   }
 
   private toSafeUser(user: User): SafeUser {
-    return { id: user.id, email: user.email, totpEnabled: user.totpEnabled };
+    return {
+      id: user.id,
+      email: user.email,
+      totpEnabled: user.totpEnabled,
+      monthlySavingsTarget: user.monthlySavingsTarget ? Number(user.monthlySavingsTarget) : null,
+    };
+  }
+
+  async updateSettings(userId: string, dto: UpdateUserSettingsDto): Promise<SafeUser> {
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { monthlySavingsTarget: dto.monthlySavingsTarget ?? null },
+    });
+    return this.toSafeUser(updated);
   }
 
   // Compartido entre el fallo de contraseña y el fallo de codigo TOTP/recuperacion: para el

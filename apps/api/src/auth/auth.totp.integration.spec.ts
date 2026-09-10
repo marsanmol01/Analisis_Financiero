@@ -102,7 +102,10 @@ describe("AuthService — verificación en dos pasos (integración)", () => {
 
     const outcome = await service.verifyTotpLogin(user.id, code);
 
-    expect(outcome).toEqual({ status: "success", user: { id: user.id, email: user.email, totpEnabled: true } });
+    expect(outcome).toEqual({
+      status: "success",
+      user: { id: user.id, email: user.email, totpEnabled: true, monthlySavingsTarget: null },
+    });
     const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(after.failedLoginCount).toBe(0);
   });
@@ -171,6 +174,9 @@ describe("AuthService — verificación en dos pasos (integración)", () => {
 
   it("tras desactivarlo, el login vuelve a completarse solo con la contraseña", async () => {
     const outcome = await service.attemptLogin(user.email, PASSWORD);
-    expect(outcome).toEqual({ status: "success", user: { id: user.id, email: user.email, totpEnabled: false } });
+    expect(outcome).toEqual({
+      status: "success",
+      user: { id: user.id, email: user.email, totpEnabled: false, monthlySavingsTarget: null },
+    });
   });
 });

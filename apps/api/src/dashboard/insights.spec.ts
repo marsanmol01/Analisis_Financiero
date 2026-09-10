@@ -122,4 +122,41 @@ describe("buildInsights", () => {
     const warning = insights.find((i) => i.severity === "warning" && i.message.includes("Viajes"));
     expect(warning?.message).toContain("+100%");
   });
+
+  it("no dice nada del objetivo de ahorro si no se ha fijado", () => {
+    const insights = buildInsights({
+      periodLabel: "este mes",
+      current: period({ income: 2000, expenses: 1200 }),
+      previous: null,
+      averageSavingsRate: null,
+      monthlySavingsTarget: null,
+    });
+    expect(insights.some((i) => i.message.includes("objetivo"))).toBe(false);
+  });
+
+  it("felicita si el ahorro del periodo alcanza o supera el objetivo mensual fijado", () => {
+    const insights = buildInsights({
+      periodLabel: "este mes",
+      current: period({ income: 2000, expenses: 1200 }), // ahorro = 800
+      previous: null,
+      averageSavingsRate: null,
+      monthlySavingsTarget: 800,
+    });
+    const positive = insights.find((i) => i.severity === "positive" && i.message.includes("objetivo"));
+    expect(positive?.message).toContain("800€ ahorrados");
+    expect(positive?.message).toContain("por encima de tu objetivo de 800€");
+  });
+
+  it("avisa si el ahorro del periodo queda por debajo del objetivo mensual fijado", () => {
+    const insights = buildInsights({
+      periodLabel: "este mes",
+      current: period({ income: 1500, expenses: 1200 }), // ahorro = 300
+      previous: null,
+      averageSavingsRate: null,
+      monthlySavingsTarget: 800,
+    });
+    const warning = insights.find((i) => i.severity === "warning" && i.message.includes("objetivo"));
+    expect(warning?.message).toContain("300€ ahorrados");
+    expect(warning?.message).toContain("500€ por debajo de tu objetivo de 800€");
+  });
 });

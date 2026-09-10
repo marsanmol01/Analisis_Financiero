@@ -2,6 +2,7 @@ export interface User {
   id: string;
   email: string;
   totpEnabled: boolean;
+  monthlySavingsTarget: number | null;
 }
 
 export type LoginResult = { status: "success"; user: User } | { status: "totp_required" };

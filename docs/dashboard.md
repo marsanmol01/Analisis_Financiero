@@ -66,9 +66,10 @@ Observaciones deterministas (nunca IA) generadas por [`insights.ts`](../apps/api
 
 Reglas aplicadas, en este orden:
 1. Si se ha gastado más de lo ingresado en el periodo, un aviso con el importe exacto de más — se antepone a cualquier otro consejo.
-2. Tasa de ahorro del periodo comparada con la media propia del usuario: aviso si está notablemente por debajo (≥10 puntos porcentuales), felicitación si está claramente por encima (≥5 puntos).
-3. La categoría de mayor gasto del periodo, con su importe y qué porcentaje representa del total.
-4. La categoría con mayor incremento absoluto y porcentual frente al periodo anterior, solo si el incremento supera un mínimo en ambos sentidos (20 € y 15%) — para no generar ruido con variaciones pequeñas en categorías de gasto marginal.
+2. Objetivo de ahorro mensual/por ciclo fijado por el usuario (`User.monthlySavingsTarget`, editable en Configuración → Ahorro): si lo ha fijado, compara el ahorro real del periodo contra ese importe — felicitación si lo alcanza o supera, aviso con el importe que falta si se queda corto. A diferencia de un objetivo de ahorro (`SavingsGoal`), no tiene fecha límite ni importe total: es un ritmo a mantener indefinidamente. Si no se ha fijado (`null`, el valor por defecto), esta regla no genera nada.
+3. Tasa de ahorro del periodo comparada con la media propia del usuario: aviso si está notablemente por debajo (≥10 puntos porcentuales), felicitación si está claramente por encima (≥5 puntos).
+4. La categoría de mayor gasto del periodo, con su importe y qué porcentaje representa del total.
+5. La categoría con mayor incremento absoluto y porcentual frente al periodo anterior, solo si el incremento supera un mínimo en ambos sentidos (20 € y 15%) — para no generar ruido con variaciones pequeñas en categorías de gasto marginal.
 
 Todos los umbrales son constantes nombradas en `insights.ts`, pensadas para ajustarse si en el uso real resultan demasiado (o poco) sensibles. Cubierto por [`insights.spec.ts`](../apps/api/src/dashboard/insights.spec.ts).
 

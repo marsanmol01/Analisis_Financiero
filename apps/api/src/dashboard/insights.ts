@@ -34,8 +34,9 @@ export function buildInsights(input: {
   current: InsightPeriod;
   previous: InsightPeriod | null;
   averageSavingsRate: number | null;
+  monthlySavingsTarget?: number | null;
 }): Insight[] {
-  const { periodLabel, current, previous, averageSavingsRate } = input;
+  const { periodLabel, current, previous, averageSavingsRate, monthlySavingsTarget } = input;
   const insights: Insight[] = [];
 
   // 1. Gastas mas de lo que ingresas: la unica alerta que se antepone a las demas.
@@ -47,7 +48,25 @@ export function buildInsights(input: {
     });
   }
 
-  // 2. Tasa de ahorro frente a tu propia media.
+  // 2. Objetivo de ahorro mensual fijado por el usuario (sin fecha limite, a diferencia de un
+  // SavingsGoal — ver User.monthlySavingsTarget). Solo se compara si lo ha fijado.
+  if (monthlySavingsTarget !== undefined && monthlySavingsTarget !== null && monthlySavingsTarget > 0) {
+    const savings = round1(current.income - current.expenses);
+    if (savings >= monthlySavingsTarget) {
+      insights.push({
+        severity: "positive",
+        message: `Llevas ${savings}€ ahorrados ${periodLabel}, por encima de tu objetivo de ${monthlySavingsTarget}€.`,
+      });
+    } else {
+      const missing = round1(monthlySavingsTarget - savings);
+      insights.push({
+        severity: "warning",
+        message: `Llevas ${savings}€ ahorrados ${periodLabel}, ${missing}€ por debajo de tu objetivo de ${monthlySavingsTarget}€.`,
+      });
+    }
+  }
+
+  // 3. Tasa de ahorro frente a tu propia media.
   if (current.savingsRate !== null && averageSavingsRate !== null) {
     const diff = round1(current.savingsRate - averageSavingsRate);
     if (diff <= -SAVINGS_RATE_BELOW_AVERAGE_THRESHOLD) {
@@ -63,7 +82,7 @@ export function buildInsights(input: {
     }
   }
 
-  // 3. Categoria de mayor gasto.
+  // 4. Categoria de mayor gasto.
   const topCategory = current.byCategory[0];
   if (topCategory && current.expenses > 0) {
     const share = round1((topCategory.total / current.expenses) * 100);
@@ -73,7 +92,7 @@ export function buildInsights(input: {
     });
   }
 
-  // 4. Categoria que ha subido mas frente al periodo anterior.
+  // 5. Categoria que ha subido mas frente al periodo anterior.
   if (previous) {
     const previousByCategory = new Map(previous.byCategory.map((c) => [c.categoryId, c.total]));
     let biggestIncrease: { name: string; diff: number; percent: number } | null = null;

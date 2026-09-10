@@ -25,7 +25,7 @@ export class DashboardService {
     private readonly recurringService: RecurringService,
   ) {}
 
-  async getDashboard(userId: string, query: DashboardQueryDto) {
+  async getDashboard(userId: string, query: DashboardQueryDto, monthlySavingsTarget: number | null = null) {
     const evolutionMonths = query.evolutionMonths ?? 12;
     const currentMonth = monthKeyOf(new Date());
 
@@ -78,7 +78,7 @@ export class DashboardService {
     const dailyBudget = computeDailyBudget(availableMoney, daysRemainingInMonth(today));
 
     const alerts = this.buildAlerts(budgetsProgress, activeGoals, recurringGroups, today);
-    const insights = await this.buildDashboardInsights(userId, payCycle, summary, byCategory);
+    const insights = await this.buildDashboardInsights(userId, payCycle, summary, byCategory, monthlySavingsTarget);
 
     return {
       summary,
@@ -111,6 +111,7 @@ export class DashboardService {
     payCycle: PayCycleSummaryResult,
     summary: SummaryResult,
     byCategory: CategoryBreakdownItem[],
+    monthlySavingsTarget: number | null,
   ): Promise<Insight[]> {
     if (payCycle.hasSalaryData && payCycle.current) {
       return buildInsights({
@@ -130,6 +131,7 @@ export class DashboardService {
             }
           : null,
         averageSavingsRate: payCycle.average?.savingsRate ?? null,
+        monthlySavingsTarget,
       });
     }
 
@@ -150,6 +152,7 @@ export class DashboardService {
         byCategory: previousByCategory,
       },
       averageSavingsRate: computeSavingsRate(summary.averageLastMonths.income, summary.averageLastMonths.expenses),
+      monthlySavingsTarget,
     });
   }
 

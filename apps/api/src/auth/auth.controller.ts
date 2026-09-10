@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
+  Patch,
   Post,
   Req,
   Res,
@@ -20,6 +21,7 @@ import { TotpCodeDto } from "./dto/totp-code.dto";
 import { SecondFactorCodeDto } from "./dto/second-factor-code.dto";
 import { DisableTotpDto } from "./dto/disable-totp.dto";
 import { RegenerateRecoveryCodesDto } from "./dto/regenerate-recovery-codes.dto";
+import { UpdateUserSettingsDto } from "./dto/update-user-settings.dto";
 import { CurrentUser } from "./decorators/current-user.decorator";
 import { SessionAuthGuard, RequestWithUser } from "./guards/session-auth.guard";
 import { CsrfHeaderGuard } from "./guards/csrf-header.guard";
@@ -202,6 +204,12 @@ export class AuthController {
   @UseGuards(SessionAuthGuard)
   me(@CurrentUser() user: SafeUser) {
     return user;
+  }
+
+  @Patch("me")
+  @UseGuards(SessionAuthGuard, CsrfHeaderGuard)
+  updateMe(@CurrentUser() user: SafeUser, @Body() dto: UpdateUserSettingsDto) {
+    return this.authService.updateSettings(user.id, dto);
   }
 
   private regenerateSession(request: RequestWithUser): Promise<void> {

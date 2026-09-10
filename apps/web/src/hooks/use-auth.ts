@@ -51,6 +51,19 @@ export function useRegister() {
   });
 }
 
+export function useUpdateSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { monthlySavingsTarget: number | null }) => api.patch<User>("/auth/me", input),
+    onSuccess: (user) => {
+      queryClient.setQueryData(AUTH_QUERY_KEY, user);
+      // El objetivo de ahorro entra en los consejos del dashboard: sin invalidar, se veria el
+      // valor antiguo hasta la siguiente recarga natural de esa query.
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
 export function useLogout() {
   const queryClient = useQueryClient();
   return useMutation({

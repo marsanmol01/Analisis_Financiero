@@ -7,6 +7,7 @@ import { useRecoveryCodesStatus } from "../../hooks/use-totp";
 import { TotpDisableDialog } from "./totp-disable-dialog";
 import { TotpSetupDialog } from "./totp-setup-dialog";
 import { RegenerateRecoveryCodesDialog } from "./regenerate-recovery-codes-dialog";
+import { SavingsTargetForm } from "./savings-target-form";
 
 export function SettingsPage() {
   const { data: user } = useCurrentUser();
@@ -67,6 +68,8 @@ export function SettingsPage() {
           </CardContent>
         )}
       </Card>
+
+      {user && <SavingsTargetForm user={user} />}
 
       <TotpSetupDialog open={setupOpen} onOpenChange={setSetupOpen} />
       <TotpDisableDialog open={disableOpen} onOpenChange={setDisableOpen} />
