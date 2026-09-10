@@ -1,6 +1,7 @@
 import { LogOut } from "lucide-react";
 import { Button } from "../ui/button";
 import { useCurrentUser, useLogout } from "../../hooks/use-auth";
+import { MobileNav } from "./mobile-nav";
 
 export function Topbar() {
   const { data: user } = useCurrentUser();
@@ -8,7 +9,10 @@ export function Topbar() {
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-[var(--color-border)] bg-white px-4 md:px-6">
-      <span className="text-sm font-semibold text-slate-900 md:hidden">Plataforma Financiera</span>
+      <div className="flex items-center gap-2">
+        <MobileNav />
+        <span className="text-sm font-semibold text-slate-900 md:hidden">Plataforma Financiera</span>
+      </div>
       <div className="ml-auto flex items-center gap-4">
         {user && <span className="text-sm text-[var(--color-text-muted)]">{user.email}</span>}
         <Button variant="ghost" size="sm" onClick={() => logout.mutate()} disabled={logout.isPending}>
