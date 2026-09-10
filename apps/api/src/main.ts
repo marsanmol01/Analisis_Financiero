@@ -24,6 +24,13 @@ async function bootstrap() {
     );
   }
 
+  // Cuando se accede via Tailscale Serve, la API solo ve conexiones desde localhost (el proxy
+  // corre en la misma maquina) — sin esto, el limitador de peticiones trataria a todos los
+  // dispositivos del tailnet como una unica IP compartida. Se confia en la cabecera
+  // X-Forwarded-For solo cuando la conexion inmediata viene de loopback, que es exactamente el
+  // caso de Tailscale Serve (y de pruebas locales), nunca de una conexion externa real.
+  app.getHttpAdapter().getInstance().set("trust proxy", "loopback");
+
   app.use(helmet());
   app.use(cookieParser());
 
