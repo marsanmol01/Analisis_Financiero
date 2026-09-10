@@ -16,5 +16,35 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Dentro de la red de Docker, Postgres se llama "postgres" (el nombre del servicio), nunca
+      # "localhost" — sobreescribe el DATABASE_URL de desarrollo del .env solo para este contenedor.
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-finanzas}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-plataforma_financiera}?schema=public"
+      NODE_ENV: production
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+
 volumes:
   postgres_data:
