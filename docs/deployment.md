@@ -14,7 +14,15 @@ Los tres contenedores corren siempre (`restart: unless-stopped`), sustituyendo a
 ## Imágenes
 
 - **`apps/api/Dockerfile`**: build multi-stage. La etapa de build instala `python3`/`make`/`g++` (necesarios solo para compilar el módulo nativo de `argon2`, nunca llegan a la imagen final) y compila con `nest build`. La imagen final ejecuta [`docker-entrypoint.sh`](../apps/api/docker-entrypoint.sh), que aplica `prisma migrate deploy` (idempotente: no hace nada si la base de datos ya está al día) antes de arrancar `node apps/api/dist/src/main.js`.
-- **`apps/web/Dockerfile`**: compila con Vite (`VITE_API_URL` se hornea en el bundle en tiempo de build — cambiarlo exige reconstruir la imagen, ver más abajo) y sirve los estáticos con `nginx:alpine` + [`nginx.conf`](../apps/web/nginx.conf) (con fallback a `index.html` para que las rutas de `react-router` funcionen con recarga directa).
+- **`apps/web/Dockerfile`**: compila con Vite (`VITE_API_URL` se hornea en el bundle en tiempo de build — cambiarlo exige reconstruir la imagen, ver más abajo) y sirve los estáticos con `nginx:alpine` + [`nginx.conf`](../apps/web/nginx.conf) (con fallback a `index.html` para que las rutas de `react-router` funcionen con recarga directa, y proxy interno de `/api/*` hacia el contenedor `api` — ver "Un único origen" más abajo).
+
+## Un único origen: nginx hace de proxy hacia la API
+
+El navegador **nunca** habla directamente con el contenedor `api`: nginx reenvía internamente todo lo que llega a `/api/*` hacia `http://api:3000/` dentro de la red de Docker (`apps/web/nginx.conf`). Así, `VITE_API_URL=/api` (una ruta relativa, no una URL absoluta) y todo — frontend y API — se sirve desde el mismo origen (mismo host y puerto) que ve el navegador, sea `localhost:8080`, la IP de la LAN, o el hostname de Tailscale.
+
+Se eligió este diseño **después de un fallo real**: la primera versión exponía la API en un puerto distinto (8443) del frontend (443) sobre el mismo hostname de Tailscale. El servidor respondía perfectamente a esa petición (confirmado reproduciéndola por `curl` con una sesión real), pero **Safari de iOS no cargaba los datos del dashboard tras un login correcto** — un fallo específico del navegador móvil ante ese diseño de dos puertos, no del servidor. Unificar todo bajo un único origen elimina la ambigüedad de raíz, en vez de depender de que cada navegador interprete igual el `SameSite` de la cookie entre puertos distintos del mismo host.
+
+Consecuencia en el código: `api-client.ts` concatena `API_URL + path` como texto plano en vez de usar `new URL(path, base)` — el constructor `URL` exige una base absoluta y además una ruta que empieza por `/` sustituye el path completo de la base (perdería el prefijo `/api`). Y `main.ts` confía en `X-Forwarded-For` con `trust proxy: "uniquelocal"` (loopback + redes privadas como la de Docker), no `"loopback"` a secas, porque ahora la API recibe la conexión desde nginx (red interna de Docker), no desde localhost directo.
 
 ## Variables de entorno relevantes para producción
 
@@ -57,23 +65,18 @@ Se eligió Tailscale (VPN privada de malla, gratis para uso personal) en vez de 
 
 1. **Windows (este PC)**: instalar Tailscale (`winget install Tailscale.Tailscale` o desde tailscale.com/download) e iniciar sesión con una cuenta (Google/Microsoft/email — se crea en el propio flujo de Tailscale).
 2. **iPhone y iPad**: instalar la app "Tailscale" desde el App Store, iniciar sesión con la **misma** cuenta.
-3. Con el PC ya en la red Tailscale (`tailscale status` debe listar el propio dispositivo), activar Tailscale Serve para publicar la app dentro de la red privada — dos mapeos sobre el mismo hostname, uno para el frontend (443, implícito) y otro para la API (8443), evitando así cualquier cambio en las rutas actuales del backend:
+3. Con el PC ya en la red Tailscale (`tailscale status` debe listar el propio dispositivo), activar Tailscale Serve para publicar el frontend (que a su vez hace de proxy hacia la API — ver "Un único origen" más arriba, un solo mapeo es suficiente):
 
    ```bash
-   tailscale serve https / http://127.0.0.1:8080      # frontend (nginx)
-   tailscale serve https:8443 / http://127.0.0.1:3000  # API
+   tailscale serve --bg http://127.0.0.1:8080
    ```
 
 4. Averiguar el hostname asignado: `tailscale status` (o `tailscale serve status`) — tiene forma `equipo.tailXXXXX.ts.net`.
 5. Actualizar el `.env` de este repo:
    - `WEB_ORIGIN=http://localhost:5173,https://equipo.tailXXXXX.ts.net`
-   - `VITE_API_URL=https://equipo.tailXXXXX.ts.net:8443`
-6. Reconstruir y relanzar: `docker compose build web && docker compose up -d api web` (el `api` no necesita rebuild, solo lee `WEB_ORIGIN` en caliente al arrancar — pero sí necesita reiniciarse para recogerlo).
+   - `VITE_API_URL=/api`
+6. Reconstruir y relanzar: `docker compose build web && docker compose up -d api web`.
 7. Desde el iPhone/iPad, con la app de Tailscale activa, entrar en `https://equipo.tailXXXXX.ts.net` desde Safari.
-
-### Por qué dos puertos en vez de una sola ruta con prefijo
-
-Se evita deliberadamente montar la API bajo un prefijo como `/api` en el mismo puerto 443: el cliente (`apps/web/src/lib/api-client.ts`) construye las URLs combinando `VITE_API_URL` con rutas que empiezan por `/` (ej. `/auth/login`), y `new URL("/auth/login", "https://host/api")` en JavaScript **ignora** el `/api` del origen base (una ruta que empieza por `/` siempre sustituye el path completo). Usar un puerto distinto en el mismo hostname evita ese problema de raíz sin tocar código, y sigue siendo un solo certificado/hostname de Tailscale.
 
 ## Fuera de alcance por ahora
 
