@@ -26,15 +26,25 @@ interface RequestOptions {
 }
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
-  const url = new URL(path, API_URL);
+  // Concatenacion simple en vez de "new URL(path, base)": permite que API_URL sea tanto una URL
+  // absoluta (desarrollo: http://localhost:3000) como una ruta relativa al propio origen
+  // (produccion: /api, detras del proxy de nginx) — "new URL()" exige una base absoluta y ademas
+  // una ruta que empieza por "/" sustituye el path completo de la base, perdiendo el "/api".
+  const base = API_URL.endsWith("/") ? API_URL.slice(0, -1) : API_URL;
+  let url = base + path;
   if (query) {
+    const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined && value !== null && value !== "") {
-        url.searchParams.set(key, String(value));
+        params.set(key, String(value));
       }
     }
+    const queryString = params.toString();
+    if (queryString) {
+      url += (url.includes("?") ? "&" : "?") + queryString;
+    }
   }
-  return url.toString();
+  return url;
 }
 
 function extractMessage(data: unknown, fallback: string): string {

@@ -24,12 +24,12 @@ async function bootstrap() {
     );
   }
 
-  // Cuando se accede via Tailscale Serve, la API solo ve conexiones desde localhost (el proxy
-  // corre en la misma maquina) — sin esto, el limitador de peticiones trataria a todos los
-  // dispositivos del tailnet como una unica IP compartida. Se confia en la cabecera
-  // X-Forwarded-For solo cuando la conexion inmediata viene de loopback, que es exactamente el
-  // caso de Tailscale Serve (y de pruebas locales), nunca de una conexion externa real.
-  app.getHttpAdapter().getInstance().set("trust proxy", "loopback");
+  // nginx (el contenedor "web") reenvia las peticiones del navegador a la API dentro de la red
+  // de Docker — sin esto, el limitador de peticiones trataria a todo el mundo (los 3
+  // dispositivos del tailnet, cualquier navegador) como una unica IP compartida, la del propio
+  // nginx. "uniquelocal" confia en X-Forwarded-For solo cuando la conexion inmediata viene de
+  // una red privada (loopback o el rango interno de Docker), nunca de una conexion externa real.
+  app.getHttpAdapter().getInstance().set("trust proxy", "uniquelocal");
 
   app.use(helmet());
   app.use(cookieParser());
