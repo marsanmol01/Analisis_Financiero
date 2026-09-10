@@ -6,7 +6,16 @@ dayjs.extend(customParseFormat);
 // Formatos mas comunes en extractos bancarios espanoles/europeos, probados en orden estricto
 // (sin adivinar dia/mes de forma ambigua tipo MM/DD). Si ninguno encaja, la fila se marca como
 // error en vez de asumir una fecha incorrecta.
-const KNOWN_FORMATS = ["YYYY-MM-DD", "DD/MM/YYYY", "DD-MM-YYYY", "DD.MM.YYYY", "YYYY/MM/DD"];
+const KNOWN_FORMATS = [
+  "YYYY-MM-DD",
+  "DD/MM/YYYY",
+  "DD-MM-YYYY",
+  "DD.MM.YYYY",
+  "YYYY/MM/DD",
+  // Revolut exporta la fecha con hora incluida (ej. "2024-07-01 09:35:49"); la hora se ignora,
+  // solo interesa el dia calendario.
+  "YYYY-MM-DD HH:mm:ss",
+];
 
 export function parseDate(raw: string): Date | null {
   const text = raw.trim();

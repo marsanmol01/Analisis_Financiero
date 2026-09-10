@@ -41,7 +41,7 @@ Los campos `status`, `reason` y `fingerprint` que trae cada fila del preview se 
 ## Calidad de datos
 
 - **Importes**: admite coma o punto decimal, miles, signo delante o formato contable con paréntesis, símbolo de moneda, y un código de moneda ISO 4217 pegado directamente al número sin espacio (p. ej. `-20,99EUR`, formato real visto en el extracto de CaixaBank). Ante ambigüedad real (p. ej. texto no numérico) devuelve `null` → la fila se marca `error`, nunca se asume un valor.
-- **Fechas**: `YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY`, `DD.MM.YYYY`, `YYYY/MM/DD`, en modo estricto (rechaza `32/13/2026`). Se ancla a medianoche UTC del día detectado para no desplazar el día por la zona horaria del servidor.
+- **Fechas**: `YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY`, `DD.MM.YYYY`, `YYYY/MM/DD`, `YYYY-MM-DD HH:mm:ss` (formato real de Revolut, la hora se ignora), en modo estricto (rechaza `32/13/2026`). Se ancla a medianoche UTC del día detectado para no desplazar el día por la zona horaria del servidor.
 - **Filas vacías**: se ignoran sin contar como error. Una fila con contenido pero campos clave vacíos/ilegibles sí se marca como `error` y aparece en el preview — nunca se descarta en silencio.
 - **Límite de tamaño**: 15 MB por fichero (multer) y 20.000 filas por importación, para evitar agotamiento de memoria con un fichero enorme o malicioso.
 

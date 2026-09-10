@@ -29,4 +29,9 @@ describe("parseDate", () => {
     expect(parseDate("")).toBeNull();
     expect(parseDate("ayer")).toBeNull();
   });
+
+  it("parsea ISO con hora incluida, formato real de Revolut (YYYY-MM-DD HH:mm:ss)", () => {
+    const date = parseDate("2024-07-01 09:35:49");
+    expect(date?.toISOString().slice(0, 10)).toBe("2024-07-01");
+  });
 });
