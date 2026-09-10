@@ -24,6 +24,12 @@ Se eligió este diseño **después de un fallo real**: la primera versión expon
 
 Consecuencia en el código: `api-client.ts` concatena `API_URL + path` como texto plano en vez de usar `new URL(path, base)` — el constructor `URL` exige una base absoluta y además una ruta que empieza por `/` sustituye el path completo de la base (perdería el prefijo `/api`). Y `main.ts` confía en `X-Forwarded-For` con `trust proxy: "uniquelocal"` (loopback + redes privadas como la de Docker), no `"loopback"` a secas, porque ahora la API recibe la conexión desde nginx (red interna de Docker), no desde localhost directo.
 
+### La causa real de fondo: `X-Forwarded-Proto`
+
+El cambio de un único origen no era, en realidad, la causa del fallo original — solo una mejora paralela. **La causa real**: Tailscale Serve termina el TLS y reenvía a nginx en HTTP simple (nginx nunca "ve" HTTPS en esta cadena). Sin decírselo explícitamente, `nginx.conf` reenviaba `X-Forwarded-Proto: http` (el valor real de `$scheme` en nginx, que nunca es `https` aquí) — la API, viendo eso, consideraba la conexión insegura y `express-session` **se negaba a enviar la cabecera `Set-Cookie`** de la cookie `secure: true`, silenciosamente (sin error, la sesión se guardaba bien en la base de datos, solo no se comunicaba al navegador). El login parecía funcionar (200 OK, usuario devuelto), pero ninguna petición siguiente tenía sesión — reproducible con cualquier navegador, no solo Safari/Chrome de iOS.
+
+Arreglado fijando `proxy_set_header X-Forwarded-Proto https;` en la ubicación `/api/` de `nginx.conf` (correcto en este despliegue concreto: **siempre** se llega hasta nginx a través de Tailscale Serve en HTTPS, nunca en HTTP directo desde un cliente real). Verificado con una cuenta de prueba desechable: `Set-Cookie` aparece en el login y la sesión persiste en la siguiente petición.
+
 ## Variables de entorno relevantes para producción
 
 Todas viven en el `.env` de la raíz (nunca en git):
